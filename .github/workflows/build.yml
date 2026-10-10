@@ -52,6 +52,8 @@ jobs:
         run: |
           node dist/main/collect-cli.js --full > snapshot.json
           cat snapshot.json
+      - name: Summarise the snapshot
+        run: node scripts/annotate-snapshot.mjs snapshot.json
       - uses: actions/upload-artifact@v4
         with:
           name: snapshot-${{ matrix.os }}
