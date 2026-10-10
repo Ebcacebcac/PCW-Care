@@ -11,7 +11,8 @@ permissions:
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  # Never cancel main or tag runs half-way through a release.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   check:
@@ -59,34 +60,65 @@ jobs:
           name: snapshot-${{ matrix.os }}
           path: snapshot.json
 
-  # ── Releases: push a tag vX.Y.Z (matching package.json) ──
+  # ── Releases ──
+  # Bump "version" in package.json and push to main: if there is no tag
+  # v<version> yet, this builds the installers and publishes the release
+  # (GitHub creates the tag when the release is published). Pushing a tag
+  # vX.Y.Z that matches package.json works too.
+
+  release-plan:
+    name: Release needed?
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [check, selftest]
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      release: ${{ steps.plan.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            if [ "$GITHUB_REF_NAME" != "$tag" ]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${tag}"; exit 1
+            fi
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "$tag is already released — nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          elif gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null | grep -q false; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Releasing $tag from ${GITHUB_SHA::7}"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
 
   release-draft:
     name: Create draft release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check, selftest]
+    needs: release-plan
+    if: needs.release-plan.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Tag must match package.json version
-        run: |
-          v="v$(node -p "require('./package.json').version")"
-          if [ "$v" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${v}"; exit 1
-          fi
       - name: Create the draft (if it doesn't exist yet)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-plan.outputs.tag }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --draft --generate-notes \
-              --title "PCW Care ${GITHUB_REF_NAME#v}$(case "$GITHUB_REF_NAME" in v0.*) echo ' (beta)';; esac)"
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" --generate-notes \
+              --title "PCW Care ${TAG#v}$(case "$TAG" in v0.*) echo ' (beta)';; esac)"
 
   installers:
     name: Installers (${{ matrix.os }})
-    needs: release-draft
+    needs: [release-plan, release-draft]
     strategy:
       fail-fast: false
       matrix:
@@ -113,7 +145,7 @@ jobs:
 
   release-publish:
     name: Publish release
-    needs: installers
+    needs: [release-plan, installers]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -122,6 +154,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-plan.outputs.tag }}
         run: |
-          gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name'
-          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          gh release view "$TAG" --json assets --jq '.assets[].name'
+          gh release edit "$TAG" --draft=false --latest

@@ -95,12 +95,15 @@ in") to start in the tray.
 
 ## Releasing
 
-1. Bump `version` in `package.json` (e.g. `0.2.0`) and commit.
-2. Tag and push: `git tag v0.2.0 && git push origin main v0.2.0`.
-3. GitHub Actions (`.github/workflows/build.yml`) runs the checks, creates a
-   draft release for the tag, builds the Windows installer and the macOS DMG/ZIP
-   on real runners, uploads them with `latest.yml` / `latest-mac.yml`, then
-   publishes the release. The tag must match `package.json` or the run stops.
+1. Bump `version` in `package.json` (e.g. `0.2.0`, and run `npm install` so
+   the lockfile matches) and push to `main`.
+2. GitHub Actions (`.github/workflows/build.yml`) runs the checks and, because
+   there's no `v0.2.0` tag yet, creates a draft release, builds the Windows
+   installer and the macOS DMG/ZIP on real runners, uploads them with
+   `latest.yml` / `latest-mac.yml`, then publishes the release (which creates
+   the tag). Pushes that don't change the version just run the checks.
+   Pushing a matching `vX.Y.Z` tag also works; a tag that doesn't match
+   `package.json` stops the run.
 
 Installed copies check GitHub Releases on start-up and every 6 hours.
 Windows downloads the update in the background and offers "Restart to update".
