@@ -30,7 +30,7 @@ function winReport(): DeviceReport {
     durationMs: 8400,
     appVersion: '0.1.0',
     device: desktop
-      ? { manufacturer: 'Dell Inc.', model: 'OptiPlex 7010', serial: '7XK2Q93', type: 'desktop', name: 'RECEPTION-PC' }
+      ? { manufacturer: 'Dell', model: 'OptiPlex 7010', serial: '7XK2Q93', type: 'desktop', name: 'RECEPTION-PC' }
       : { manufacturer: 'Lenovo', model: 'ThinkPad T14 Gen 3', serial: 'PF3W8K2L', type: 'laptop', name: 'JANE-LAPTOP' },
     os: { platform: 'win32', name: 'Windows 11 Home', version: '24H2', build: '26100.2314', arch: 'x64' },
     cpu: { brand: 'Intel Core i5-1245U', cores: 10, threads: 12, speedGhz: 1.6 },
@@ -119,7 +119,7 @@ function macReport(): DeviceReport {
     battery: { healthPct: 97, cycles: 88, charging: true, percent: 81, condition: 'Normal' },
     uptimeHours: 52,
     checks: [
-      { id: 'updates', title: 'macOS updates', category: 'updates', status: 'warn', detail: '1 update available (macOS Sequoia 15.7). Your Mac will need to restart to install them.', fixes: ['open:updates'] },
+      { id: 'updates', title: 'macOS updates', category: 'updates', status: 'warn', detail: '1 update available (macOS Sequoia 15.7). Your Mac will need to restart to install it.', fixes: ['open:updates'] },
       { id: 'antivirus', title: 'Built-in malware protection', category: 'security', status: 'ok', detail: 'Gatekeeper and XProtect are protecting your Mac. XProtect version 5317.', fixes: ['open:security'] },
       { id: 'encryption', title: 'FileVault disk encryption', category: 'security', status: 'ok', detail: 'Your files are encrypted if your Mac is lost or stolen.', fixes: ['open:encryption'] },
       { id: 'firewall', title: 'Firewall', category: 'security', status: 'warn', detail: 'The macOS firewall is off. Turning it on adds protection on public Wi-Fi.', fixes: ['open:firewall'] },

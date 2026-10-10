@@ -49,7 +49,7 @@ export function evalMacUpdates(raw: RawMac['softwareUpdate']): CheckResult {
   }
   const n = raw.updates.length;
   const names = raw.updates.slice(0, 2).map((u) => u.title).join(', ');
-  const restart = raw.updates.some((u) => u.restart) ? ' Your Mac will need to restart to install them.' : '';
+  const restart = raw.updates.some((u) => u.restart) ? ` Your Mac will need to restart to install ${n === 1 ? 'it' : 'them'}.` : '';
   return result({ ...base, status: 'warn', detail: `${n} update${n === 1 ? '' : 's'} available (${names}${n > 2 ? ', …' : ''}).${restart}` });
 }
 

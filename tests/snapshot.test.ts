@@ -182,3 +182,20 @@ describe('shapeSnapshot', () => {
     expect(t).toContain('[warn] Free space on C:');
   });
 });
+
+describe('friendlyMaker', async () => {
+  const { friendlyMaker } = await import('../src/main/collect');
+  it.each([
+    ['Dell Inc.', 'Dell'],
+    ['HP', 'HP'],
+    ['Hewlett-Packard', 'HP'],
+    ['LENOVO', 'Lenovo'],
+    ['ASUSTeK COMPUTER INC.', 'ASUS'],
+    ['Micro-Star International Co., Ltd.', 'MSI'],
+    ['Apple Inc.', 'Apple'],
+    ['Framework Computer Inc', 'Framework Computer'],
+    ['', ''],
+  ])('%s → %s', (raw, name) => {
+    expect(friendlyMaker(raw)).toBe(name);
+  });
+});

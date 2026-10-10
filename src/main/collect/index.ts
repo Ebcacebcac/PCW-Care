@@ -38,6 +38,26 @@ export function clean(v: string | null | undefined): string {
   return JUNK.test(s) ? '' : s;
 }
 
+const MAKERS: [RegExp, string][] = [
+  [/^apple/i, 'Apple'],
+  [/^dell/i, 'Dell'],
+  [/^(hp|hewlett)/i, 'HP'],
+  [/^lenovo/i, 'Lenovo'],
+  [/^asus/i, 'ASUS'],
+  [/^acer/i, 'Acer'],
+  [/^micro-star|^msi\b/i, 'MSI'],
+  [/^microsoft/i, 'Microsoft'],
+  [/^samsung/i, 'Samsung'],
+  [/^toshiba|^dynabook/i, 'Dynabook'],
+  [/^gigabyte/i, 'Gigabyte'],
+];
+
+/* "Dell Inc." → "Dell", "ASUSTeK COMPUTER INC." → "ASUS", and so on. */
+export function friendlyMaker(raw: string): string {
+  for (const [re, name] of MAKERS) if (re.test(raw)) return name;
+  return raw.replace(/,?\s+(inc\.?|corporation|corp\.?|co\.?,? ltd\.?|ltd\.?|limited|gmbh)$/i, '').trim();
+}
+
 function deviceType(common: RawCommon, mac: RawMac | null, model: string): DeviceType {
   if (/macbook/i.test(model)) return 'laptop';
   if (/imac|mac mini|mac pro|mac studio/i.test(model)) return 'desktop';
@@ -71,13 +91,11 @@ export function buildReport(raw: RawCollection, opts: { appVersion: string; now:
   const platform = common.platform;
 
   // Device identity
-  let manufacturer = clean(common.system?.manufacturer);
-  if (/^apple/i.test(manufacturer)) manufacturer = 'Apple';
+  const manufacturer = friendlyMaker(clean(common.system?.manufacturer));
   let model = clean(common.system?.model);
   // Lenovo puts the machine type in "model" and the friendly name in "version".
   const version = clean(common.system?.version);
   if (/lenovo/i.test(manufacturer) && version && /[a-z]{3,}/i.test(version)) model = version;
-  if (/^lenovo$/i.test(manufacturer)) manufacturer = 'Lenovo';
   if (mac?.hardware?.machineName) {
     const id = clean(mac.hardware.machineModel);
     model = id ? `${mac.hardware.machineName} (${id})` : mac.hardware.machineName;
