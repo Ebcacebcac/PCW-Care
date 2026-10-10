@@ -4,7 +4,8 @@
 import { readFileSync } from 'node:fs';
 
 const file = process.argv[2] || 'snapshot.json';
-const s = JSON.parse(readFileSync(file, 'utf8'));
+const raw = JSON.parse(readFileSync(file, 'utf8'));
+const s = raw.snapshot || raw; // collect-cli --full wraps it
 
 const lines = [];
 const os = s.os || {};
