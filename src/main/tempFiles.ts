@@ -3,7 +3,13 @@
    Safety rules (v1 — nothing that needs admin, nothing that touches
    documents):
    - Only the current user's own temp folder, and only when it really looks
-     like one (inside the home folder and called Temp/tmp/T).
+     like one (inside the home folder and called Temp/tmp/T, or a numbered
+     per-session folder inside one). Both paths are resolved to their real,
+     full form first: Windows often gives TEMP in 8.3 short form
+     (C:\Users\ETHANB~1\...) while the home folder is the long name, and a
+     temp folder that is really a link somewhere else must not pass. On
+     macOS the per-user TMPDIR (/private/var/folders/../T, owned by the user)
+     is accepted too.
    - Only regular files older than a day (installers and running apps keep
      fresh files there); never the folder itself.
    - Symlinks and Windows junctions are never followed or removed.
@@ -31,8 +37,54 @@ export function isSafeTempDir(dir: string, home: string, platform: string = proc
   const norm = (s: string) => (platform === 'win32' ? s.toLowerCase() : s);
   const rel = p.relative(norm(homeResolved), norm(resolved));
   if (!rel || rel.startsWith('..') || p.isAbsolute(rel)) return false; // must be strictly inside home
-  const base = p.basename(resolved).toLowerCase();
-  return base === 'temp' || base === 'tmp' || base === 't';
+  const isTempName = (name: string) => {
+    const b = name.toLowerCase();
+    return b === 'temp' || b === 'tmp' || b === 't';
+  };
+  const base = p.basename(resolved);
+  if (isTempName(base)) return true;
+  // Windows per-session temp folders: ...\AppData\Local\Temp\2
+  return /^\d{1,4}$/.test(base) && isTempName(p.basename(p.dirname(resolved)));
+}
+
+async function realPath(p: string): Promise<string> {
+  try {
+    // fs/promises realpath uses the native resolver (same as
+    // fs.realpath.native): it expands Windows 8.3 short names (RUNNER~1)
+    // and follows links and junctions.
+    return await fs.realpath(p);
+  } catch {
+    return p;
+  }
+}
+
+/** The temp folder to clear, as its real full path — or null if it isn't
+    safely the user's own temp folder. */
+export async function resolveSafeTempDir(
+  dir: string,
+  home: string,
+  platform: string = process.platform,
+): Promise<string | null> {
+  if (!dir || !home) return null;
+  const [realDir, realHome] = await Promise.all([realPath(dir), realPath(home)]);
+  if (isSafeTempDir(realDir, realHome, platform)) return realDir;
+  if (platform === 'darwin' && (await isMacUserTempDir(realDir))) return realDir;
+  return null;
+}
+
+/* macOS keeps each user's temp folder outside the home folder, at
+   /private/var/folders/<xx>/<random>/T (what TMPDIR points to). Accept exactly
+   that shape, and only when the folder belongs to the signed-in user. */
+export const MAC_USER_TEMP = /^\/private\/var\/folders\/[A-Za-z0-9_+-]+\/[A-Za-z0-9_+-]+\/T$/;
+
+async function isMacUserTempDir(realDir: string): Promise<boolean> {
+  if (!MAC_USER_TEMP.test(realDir)) return false;
+  try {
+    const st = await fs.lstat(realDir);
+    return st.isDirectory() && typeof process.getuid === 'function' && st.uid === process.getuid();
+  } catch {
+    return false;
+  }
 }
 
 interface WalkOptions {
@@ -108,10 +160,11 @@ export async function cleanTemp(
   home = os.homedir(),
   opts: { timeLimitMs?: number; now?: number; platform?: string } = {},
 ): Promise<CleanTempResult> {
-  if (!isSafeTempDir(dir, home, opts.platform)) {
-    throw new Error('The temporary files folder is not in the expected place, so nothing was removed.');
+  const safe = await resolveSafeTempDir(dir, home, opts.platform);
+  if (!safe) {
+    throw new Error(`Your temporary files folder (${dir}) isn't where we expected, so nothing was removed. PC Workshop can clear it for you.`);
   }
-  const root = path.resolve(dir);
+  const root = path.resolve(safe);
   const result: CleanTempResult = { freedBytes: 0, deletedFiles: 0, skippedFiles: 0 };
   const stats: WalkStats = { totalBytes: 0, clearableBytes: 0, files: 0, truncated: false };
   await walk(

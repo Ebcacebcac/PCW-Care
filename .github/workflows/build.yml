@@ -55,6 +55,8 @@ jobs:
           cat snapshot.json
       - name: Summarise the snapshot
         run: node scripts/annotate-snapshot.mjs snapshot.json
+      - name: Clear temporary files on a real machine
+        run: node scripts/check-temp-clean.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: snapshot-${{ matrix.os }}
