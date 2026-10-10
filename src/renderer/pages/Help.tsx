@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import type { RemoteRequestSummary } from '../../shared/types';
+import type { ConnectStatus, RemoteRequestSummary } from '../../shared/types';
 import { EMAIL, HOURS_NOTE, PHONE_DISPLAY, WORKSHOPS } from '../../shared/contact';
 import { formatDateTime } from '../../shared/format';
 import { useCare } from '../context';
@@ -277,13 +277,85 @@ function RemoteSupport() {
 
 function ConnectCard() {
   const { api } = useCare();
+  const [status, setStatus] = useState<ConnectStatus | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [openFailed, setOpenFailed] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    // Quick "is it installed?" first, then the ID (PCW-Connect takes a moment to answer).
+    void api.getConnectStatus(false).then((s) => {
+      if (!live) return;
+      setStatus(s);
+      if (s.installed) void api.getConnectStatus(true).then((full) => live && setStatus(full));
+    });
+    return () => {
+      live = false;
+    };
+  }, [api]);
+
+  if (status && !status.supported) return null;
+
+  if (status?.installed) {
+    return (
+      <section className="card card-pad help-card">
+        <span className="icon-tile">
+          <Icon name="remote" />
+        </span>
+        <h2 className="card-title">PCW-Connect is installed</h2>
+        <p>If one of our technicians asks to connect, open PCW-Connect and read them this computer’s ID. You’ll be asked to accept before anyone can see your screen.</p>
+        <div className="connect-id">
+          <span className="connect-id-label">Your ID</span>
+          {status.idDisplay ? (
+            <>
+              <strong className="connect-id-value selectable num">{status.idDisplay}</strong>
+              <button
+                className="btn btn-ghost btn-sm"
+                aria-label="Copy your PCW-Connect ID"
+                onClick={() => {
+                  void api.copyText(status.id ?? '');
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+              >
+                <Icon name="copy" />
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </>
+          ) : (
+            <span className="connect-id-missing">Shown in PCW-Connect when you open it</span>
+          )}
+        </div>
+        <div className="actions">
+          <button
+            className="btn btn-primary"
+            onClick={() => void api.openConnect().then((ok) => setOpenFailed(!ok))}
+          >
+            <Icon name="external" />
+            Open PCW-Connect
+          </button>
+        </div>
+        {openFailed ? (
+          <div className="alert s-bad" role="alert">
+            <Icon name="alert" />
+            <span>PCW-Connect wouldn’t open. Try it from the Start menu, or call us on {PHONE_DISPLAY}.</span>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
   return (
     <section className="card card-pad help-card">
       <span className="icon-tile blue">
         <Icon name="download" />
       </span>
       <h2 className="card-title">Download PCW-Connect</h2>
-      <p>If one of our technicians has asked to connect to your computer, get PCW-Connect from the support page and give them the code they ask for.</p>
+      <p>
+        {status
+          ? 'PCW-Connect isn’t on this computer yet. If one of our technicians has asked to connect, get it from the support page and give them the code they ask for.'
+          : 'Checking whether PCW-Connect is installed…'}
+      </p>
       <div className="actions">
         <button className="btn btn-secondary" onClick={() => void api.open('support-page')}>
           <Icon name="external" />

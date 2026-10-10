@@ -57,6 +57,8 @@ jobs:
         run: node scripts/annotate-snapshot.mjs snapshot.json
       - name: Clear temporary files on a real machine
         run: node scripts/check-temp-clean.cjs
+      - name: Detect PCW-Connect on a real machine
+        run: node scripts/check-connect-detect.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: snapshot-${{ matrix.os }}

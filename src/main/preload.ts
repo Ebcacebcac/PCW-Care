@@ -20,6 +20,8 @@ const bridge: CareBridge = {
   createTicket: (input) =>
     invoke('createTicket', { subject: String(input.subject), message: String(input.message), includeReport: input.includeReport === true }),
   requestRemoteSupport: (input) => invoke('requestRemoteSupport', { preferred: String(input.preferred), note: String(input.note ?? '') }),
+  getConnectStatus: (withId) => invoke('getConnectStatus', withId === true),
+  openConnect: () => invoke('openConnect'),
   open: (target) => invoke('open', String(target)),
   copyText: (text) => invoke('copyText', String(text)),
   getSettings: () => invoke('getSettings'),

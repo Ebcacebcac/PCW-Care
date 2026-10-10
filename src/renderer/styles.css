@@ -1363,6 +1363,41 @@ textarea,
   flex-wrap: wrap;
 }
 
+.connect-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.connect-id-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.connect-id-value {
+  font-family: var(--font-display);
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.connect-id-missing {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.connect-id .btn {
+  margin-left: auto;
+}
+
 .contact-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);

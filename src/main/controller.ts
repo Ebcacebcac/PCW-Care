@@ -25,6 +25,7 @@ import { snapshotBody } from './snapshot';
 import { contactUrl, isAllowedExternalUrl, isContactTarget, isFixId, settingsUrl } from './links';
 import { restartComputer } from './actions';
 import { cleanTemp, scanTemp, userTempDir } from './tempFiles';
+import { PcwConnect } from './pcwConnect';
 import { formatBytes } from '../shared/format';
 import { Updater } from './updater';
 
@@ -36,6 +37,7 @@ export class Controller {
   private readonly reports: ReportCache;
   private readonly api: CareApi;
   readonly updater: Updater;
+  private readonly pcwConnect = new PcwConnect();
 
   private report: DeviceReport | null;
   private inFlight: Promise<DeviceReport> | null = null;
@@ -391,6 +393,8 @@ export class Controller {
     handle('care:refreshAccount', () => this.refreshAccount());
     handle('care:createTicket', (input: unknown) => this.createTicket(input));
     handle('care:requestRemoteSupport', (input: unknown) => this.requestRemoteSupport(input));
+    handle('care:getConnectStatus', (withId: unknown) => this.pcwConnect.status(withId === true));
+    handle('care:openConnect', () => this.pcwConnect.open());
     handle('care:open', async (target: unknown) => {
       if (!isContactTarget(target)) return;
       const url = contactUrl(target);

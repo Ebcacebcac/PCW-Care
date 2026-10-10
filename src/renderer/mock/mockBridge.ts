@@ -3,6 +3,7 @@
    included in production builds (see main.tsx).
 
    URL options: ?scenario=signin|guest|linked|healthy|checking|desktop|mac|maintenance
+   &connect=missing (PCW-Connect not installed) | noid (installed, ID unreadable)
                 &page=home|device|checks|help|account|settings */
 
 import type { AppEvent, AppState, CareBridge, DeviceReport, MeResponse, SummaryResponse, UpdateState } from '../../shared/types';
@@ -206,6 +207,14 @@ const bridge: CareBridge = {
     await wait(500);
     return { ok: true, data: { request: { id: 9, status: 'requested' }, ticket: { id: 62, ref: 'T-1204' } } };
   },
+  getConnectStatus: async (withId) => {
+    await wait(withId ? 400 : 50);
+    const c = q.get('connect');
+    if (c === 'missing') return { supported: true, installed: false, id: null, idDisplay: null };
+    if (c === 'noid' || !withId) return { supported: true, installed: true, id: null, idDisplay: null };
+    return { supported: true, installed: true, id: '123456789', idDisplay: '123 456 789' };
+  },
+  openConnect: async () => true,
   open: async () => undefined,
   copyText: async (t) => {
     try {

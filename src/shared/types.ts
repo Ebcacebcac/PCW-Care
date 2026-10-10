@@ -212,6 +212,17 @@ export type AppEvent =
 export type PageId = 'home' | 'device' | 'checks' | 'help' | 'account' | 'settings';
 
 /* The API the preload exposes as window.pcwCare. */
+/** PCW-Connect (the remote support client) on this computer. */
+export interface ConnectStatus {
+  /** Windows or macOS — the only places PCW-Connect exists. */
+  supported: boolean;
+  installed: boolean;
+  /** This computer's PCW-Connect ID, when it could be read. */
+  id: string | null;
+  /** The ID grouped as PCW-Connect shows it ("487 836 096"). */
+  idDisplay: string | null;
+}
+
 export interface CareBridge {
   getState(): Promise<AppState>;
   link(code: string): Promise<Result<AppState>>;
@@ -227,6 +238,9 @@ export interface CareBridge {
   refreshAccount(): Promise<Result<MeResponse>>;
   createTicket(input: TicketInput): Promise<Result<{ ticket: { id: number; ref: string } }>>;
   requestRemoteSupport(input: RemoteInput): Promise<Result<{ request: { id: number; status: string }; ticket: { id: number; ref: string } }>>;
+
+  getConnectStatus(withId: boolean): Promise<ConnectStatus>;
+  openConnect(): Promise<boolean>;
 
   open(target: ContactTarget): Promise<void>;
   copyText(text: string): Promise<void>;
