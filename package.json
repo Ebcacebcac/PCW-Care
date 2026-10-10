@@ -1,0 +1,56 @@
+{
+  "name": "pcw-care",
+  "productName": "PCW Care",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PCW Care keeps an eye on your computer and gets you help from PC Workshop.",
+  "author": {
+    "name": "PC Workshop Ltd",
+    "email": "support@pcworkshop.co.uk"
+  },
+  "homepage": "https://customer.pcwhub.co.uk",
+  "license": "UNLICENSED",
+  "main": "dist/main/main.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:renderer": "vite",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "self-test": "npm run build:main && node dist/main/collect-cli.js",
+    "dist": "npm run build && electron-builder --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:dir": "npm run build && electron-builder --dir --publish never",
+    "icons": "python3 scripts/make-icons.py ../pcw-hub-2.1/CUSTOMER\\ HUB/public/Assets/PCW_LOGO.png"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "systeminformation": "^5.33.15"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}
