@@ -7,7 +7,7 @@ import { Spinner } from '../components/ui';
 import { UnlinkButton } from '../components/Unlink';
 
 export function SettingsPage() {
-  const { api, state, setState, update } = useCare();
+  const { api, state, setState, update, go } = useCare();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -18,6 +18,11 @@ export function SettingsPage() {
   const toggle = async () => {
     if (!settings) return;
     setSettings(await api.setLaunchAtLogin(!settings.launchAtLogin));
+  };
+
+  const toggleNotes = async () => {
+    if (!settings) return;
+    setSettings(await api.setRepairNotifications(!settings.repairNotifications));
   };
 
   const check = async () => {
@@ -102,6 +107,22 @@ export function SettingsPage() {
               onClick={() => void toggle()}
             />
           </div>
+          {state.mode === 'linked' ? (
+            <div className="setting-row">
+              <div className="grow">
+                <strong id="rn">Tell me about my repairs</strong>
+                <span>A notification when a repair is ready, a new invoice arrives or we reply to a ticket.</span>
+              </div>
+              <button
+                className="switch"
+                role="switch"
+                aria-labelledby="rn"
+                aria-checked={settings?.repairNotifications ?? true}
+                disabled={!settings}
+                onClick={() => void toggleNotes()}
+              />
+            </div>
+          ) : null}
         </section>
 
         <section className="card">
@@ -155,26 +176,24 @@ export function SettingsPage() {
           ) : null}
         </section>
 
-        <section className="card card-pad">
-          <h2 className="card-title">Your privacy</h2>
-          <p className="card-sub" style={{ marginTop: 6 }}>
-            PCW Care only sends information to PC Workshop while this computer is linked to your account. It sends it when PCW Care starts, once a
-            day, when you run a check, and with a support ticket if you tick “Include my computer’s details”. This is exactly what’s sent:
-          </p>
-          <ul className="privacy-list">
-            <li>Computer name, make, model, serial number and whether it’s a laptop or desktop</li>
-            <li>Windows or macOS version, build and processor type</li>
-            <li>Processor, number of cores and amount of memory</li>
-            <li>Each drive’s name, type, size, free space and health</li>
-            <li>Battery health, charge cycles and current charge (laptops)</li>
-            <li>How long since the computer last restarted</li>
-            <li>The result of each maintenance check, as shown on the Maintenance page</li>
-            <li>The PCW Care version</li>
-          </ul>
-          <p className="card-sub" style={{ marginTop: 10 }}>
-            <b>Never sent:</b> your files, photos, emails, browsing history, passwords, the apps you use, or anything you type outside PCW Care.
-            When you’re not signed in, nothing leaves your computer.
-          </p>
+        <section className="card">
+          <div className="card-head">
+            <h2>Your privacy</h2>
+          </div>
+          <div className="setting-row">
+            <div className="grow">
+              <strong>{state.mode === 'linked' ? 'Sharing health checks with PC Workshop' : 'Nothing is shared'}</strong>
+              <span>
+                {state.mode === 'linked'
+                  ? 'PC Workshop sees a health report about this computer — never your files, emails, browsing or passwords. App names stay on this computer.'
+                  : 'While you’re not signed in, nothing leaves this computer.'}
+              </span>
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={() => go('privacy')}>
+              <Icon name="lock" />
+              Read the full details
+            </button>
+          </div>
         </section>
       </div>
     </div>

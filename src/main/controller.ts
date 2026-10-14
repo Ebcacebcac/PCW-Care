@@ -7,10 +7,12 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, safeStora
 import type {
   AppEvent,
   AppState,
+  CallStatus,
   CheckProgress,
   DeviceReport,
   FixId,
   FixOutcome,
+  HistoryEntry,
   MeResponse,
   RemoteInput,
   Result,
@@ -28,6 +30,10 @@ import { cleanTemp, scanTemp, userTempDir } from './tempFiles';
 import { PcwConnect } from './pcwConnect';
 import { formatBytes } from '../shared/format';
 import { Updater } from './updater';
+import { Screenshots } from './screenshot';
+import { HistoryStore } from './history';
+import { REPAIR_POLL_MS, RepairWatchStore, combineNotices, diffSummary, stateFromSummary } from './repairWatch';
+import { RECOVERY_KEY_URL } from './checks/extra';
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -38,6 +44,12 @@ export class Controller {
   private readonly api: CareApi;
   readonly updater: Updater;
   private readonly pcwConnect = new PcwConnect();
+  private readonly screenshots = new Screenshots();
+  private readonly history: HistoryStore;
+  private readonly repairWatch: RepairWatchStore;
+  private repairTimer: NodeJS.Timeout | null = null;
+  private lastCallCheck = 0;
+  private lastCall: CallStatus | null = null;
 
   private report: DeviceReport | null;
   private inFlight: Promise<DeviceReport> | null = null;
@@ -55,6 +67,8 @@ export class Controller {
     this.tokens = new TokenStore(path.join(dir, 'device-token.bin'), safeStorage);
     this.reports = new ReportCache(dir);
     this.report = this.reports.read();
+    this.history = new HistoryStore(dir);
+    this.repairWatch = new RepairWatchStore(dir);
     this.api = new CareApi({
       baseUrl: apiBase(),
       appVersion: app.getVersion(),
@@ -100,6 +114,7 @@ export class Controller {
 
   /* Any authenticated call that comes back "unlinked" lands here. */
   private onUnlinked(): void {
+    this.repairWatch.write(null);
     this.tokens.clear();
     this.settings.update({ mode: null, account: null });
     this.notice = 'This computer is no longer linked to your PC Workshop account. Sign in again to reconnect it.';
@@ -142,14 +157,17 @@ export class Controller {
       flags: { maintenance: false },
       hubUrl: 'https://customer.pcwhub.co.uk',
     };
-    const s = this.settings.update({ mode: 'linked', account: fallback });
-    if (s.launchAtLogin === null) this.setLaunchAtLogin(true);
+    // Start-at-login stays off until the customer answers the one-time
+    // question the Home page shows after sign-in (launchAtLogin === null).
+    this.settings.update({ mode: 'linked', account: fallback });
+    this.repairWatch.write(null);
     const me = await this.api.me();
     if (me.ok) this.settings.update({ account: me.data });
     this.emitState();
     // Send PC Workshop a first health report straight away.
     if (report) void this.sendReport(report);
     else void this.runCheck().catch(() => undefined);
+    void this.pollRepairs();
     return { ok: true, data: this.state() };
   }
 
@@ -172,6 +190,7 @@ export class Controller {
     if (!r.ok && r.error.code !== 'unlinked' && r.error.code !== 'not_linked') return r;
     this.tokens.clear();
     this.settings.update({ mode: null, account: null, lastReportSentAt: null });
+    this.repairWatch.write(null);
     this.notice = 'This computer has been unlinked from your account.';
     this.emitState();
     return { ok: true, data: this.state() };
@@ -201,6 +220,7 @@ export class Controller {
       .then((report) => {
         this.report = report;
         this.reports.write(report);
+        this.history.add(report);
         this.notifyIfWorse(previous, report);
         void this.sendReport(report);
         return report;
@@ -249,6 +269,50 @@ export class Controller {
       this.emit({ type: 'navigate', page: 'checks' });
     });
     n.show();
+  }
+
+  /* ── repair tracker notifications (0.2) ── */
+
+  startRepairWatch(): void {
+    if (this.repairTimer) return;
+    setTimeout(() => void this.pollRepairs(), 20_000).unref();
+    this.repairTimer = setInterval(() => void this.pollRepairs(), REPAIR_POLL_MS);
+    this.repairTimer.unref();
+  }
+
+  async pollRepairs(): Promise<void> {
+    if (this.mode !== 'linked') return;
+    const r = await this.authed(() => this.api.summary());
+    if (!r.ok) return;
+    const owner = this.settings.get().account?.device.id ?? null;
+    const prev = this.repairWatch.read();
+    const notices = diffSummary(prev, r.data, owner);
+    this.repairWatch.write(stateFromSummary(r.data, owner));
+    const n = combineNotices(notices);
+    if (!n || !this.settings.get().repairNotifications || !Notification.isSupported()) return;
+    const note = new Notification({ title: n.title, body: n.body, silent: false });
+    note.on('click', () => {
+      this.showWindow();
+      this.emit({ type: 'navigate', page: n.page });
+    });
+    note.show();
+  }
+
+  /* ── verified calls (0.2) ── */
+
+  async callStatus(): Promise<CallStatus> {
+    if (this.mode !== 'linked') return { state: 'unavailable' };
+    // The page polls every 30 s; a double click can't hammer the server.
+    if (this.lastCall && Date.now() - this.lastCallCheck < 4_000) return this.lastCall;
+    const r = await this.authed(() => this.api.callStatus());
+    const out: CallStatus = r.ok ? r.data : { state: 'error', message: r.error.message };
+    this.lastCall = out;
+    this.lastCallCheck = Date.now();
+    return out;
+  }
+
+  getHistory(): HistoryEntry[] {
+    return this.history.read();
   }
 
   /* ── fixes ── */
@@ -302,6 +366,14 @@ export class Controller {
         return { ok: false, message: err instanceof Error ? err.message : 'Clearing temporary files failed.' };
       }
     }
+    if (fix === 'open:recovery-key') {
+      try {
+        await shell.openExternal(RECOVERY_KEY_URL);
+        return { ok: true };
+      } catch {
+        return { ok: false, message: "We couldn't open your browser." };
+      }
+    }
     const url = settingsUrl(fix, process.platform);
     if (!url) return { ok: false, message: 'Not available on this computer.' };
     try {
@@ -319,6 +391,9 @@ export class Controller {
     const subject = typeof i?.subject === 'string' ? i.subject.trim() : '';
     const message = typeof i?.message === 'string' ? i.message.trim() : '';
     const includeReport = i?.includeReport === true;
+    const screenshotId = typeof i?.screenshotId === 'string' && i.screenshotId ? i.screenshotId : null;
+    const jpeg = screenshotId ? this.screenshots.take(screenshotId) : null;
+    if (screenshotId && !jpeg) return { ok: false, error: apiError('bad_screenshot', 400, 'That screenshot has expired. Take it again, or send your ticket without it.') };
     if (subject.length < 3 || subject.length > 120) return { ok: false, error: apiError('invalid', 400, 'Please give your ticket a subject (3 to 120 characters).') };
     if (message.length < 1 || message.length > 4000) return { ok: false, error: apiError('invalid', 400, 'Please tell us what you need help with (up to 4,000 characters).') };
     if (includeReport && this.report && this.mode === 'linked') {
@@ -329,7 +404,16 @@ export class Controller {
         /* carry on without it */
       }
     }
-    return this.authed(() => this.api.createTicket({ subject, message, includeReport }));
+    const r = await this.authed(() =>
+      this.api.createTicket({
+        subject,
+        message,
+        includeReport,
+        ...(jpeg ? { screenshot: { mime: 'image/jpeg' as const, data: jpeg.toString('base64') } } : {}),
+      }),
+    );
+    if (r.ok && screenshotId) this.screenshots.discard(screenshotId);
+    return r;
   }
 
   async requestRemoteSupport(input: unknown) {
@@ -356,7 +440,18 @@ export class Controller {
         /* fall back to what we stored */
       }
     }
-    return { launchAtLogin: on, launchAtLoginAvailable: this.launchAtLoginAvailable() };
+    const s = this.settings.get();
+    return {
+      launchAtLogin: on,
+      launchAtLoginAvailable: this.launchAtLoginAvailable(),
+      launchAtLoginAsked: s.launchAtLogin !== null,
+      repairNotifications: s.repairNotifications !== false,
+    };
+  }
+
+  setRepairNotifications(on: unknown): Settings {
+    this.settings.update({ repairNotifications: on === true });
+    return this.getSettings();
   }
 
   setLaunchAtLogin(on: unknown): Settings {
@@ -392,6 +487,11 @@ export class Controller {
     handle('care:getSummary', () => this.authed(() => this.api.summary()));
     handle('care:refreshAccount', () => this.refreshAccount());
     handle('care:createTicket', (input: unknown) => this.createTicket(input));
+    handle('care:captureScreenshot', () => this.screenshots.capture(this.getWindow()));
+    handle('care:discardScreenshot', (id: unknown) => this.screenshots.discard(typeof id === 'string' ? id : undefined));
+    handle('care:getCallStatus', () => this.callStatus());
+    handle('care:getHistory', () => this.getHistory());
+    handle('care:setRepairNotifications', (on: unknown) => this.setRepairNotifications(on));
     handle('care:requestRemoteSupport', (input: unknown) => this.requestRemoteSupport(input));
     handle('care:getConnectStatus', (withId: unknown) => this.pcwConnect.status(withId === true));
     handle('care:openConnect', () => this.pcwConnect.open());

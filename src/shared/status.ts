@@ -1,5 +1,6 @@
 import type { CheckCategory, CheckResult, Status } from './types';
 
+/* 'info' results are worth knowing but never count as attention. */
 export function overallStatus(checks: CheckResult[]): { status: Status; attention: number; problems: number } {
   const problems = checks.filter((c) => c.status === 'bad').length;
   const warns = checks.filter((c) => c.status === 'warn').length;
@@ -11,6 +12,7 @@ export function worstStatus(statuses: Status[]): Status {
   if (statuses.includes('bad')) return 'bad';
   if (statuses.includes('warn')) return 'warn';
   if (statuses.includes('ok')) return 'ok';
+  if (statuses.includes('info')) return 'info';
   return 'unknown';
 }
 

@@ -21,6 +21,10 @@ export interface CareCtx {
   prefill: HelpPrefill | null;
   askUs: (check?: CheckResult) => void;
   clearPrefill: () => void;
+  /* Open Get help scrolled to the remote support request (maintenance plan). */
+  helpFocus: 'remote' | null;
+  goRemoteSupport: () => void;
+  clearHelpFocus: () => void;
 }
 
 export const Ctx = createContext<CareCtx | null>(null);

@@ -12,6 +12,8 @@ import { Checks } from './pages/Checks';
 import { Help } from './pages/Help';
 import { Account } from './pages/Account';
 import { SettingsPage } from './pages/Settings';
+import { Privacy } from './pages/Privacy';
+import { Summary } from './pages/Summary';
 
 const NAV: { id: PageId; label: string; icon: IconName; linkedOnly?: boolean }[] = [
   { id: 'home', label: 'Home', icon: 'home' },
@@ -30,6 +32,7 @@ export function App() {
   const [page, setPage] = useState<PageId>(initialPage());
   const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([]);
   const [prefill, setPrefill] = useState<HelpPrefill | null>(null);
+  const [helpFocus, setHelpFocus] = useState<'remote' | null>(null);
   const toastId = useRef(0);
   const mainRef = useRef<HTMLElement>(null);
 
@@ -97,6 +100,12 @@ export function App() {
           setPage('help');
         },
         clearPrefill: () => setPrefill(null),
+        helpFocus,
+        goRemoteSupport: () => {
+          setHelpFocus('remote');
+          setPage('help');
+        },
+        clearHelpFocus: () => setHelpFocus(null),
       }
     : null;
 
@@ -111,7 +120,7 @@ export function App() {
     );
   }
 
-  const current = page === 'account' && state.mode !== 'linked' ? 'home' : page;
+  const current = (page === 'account' || page === 'summary') && state.mode !== 'linked' ? 'home' : page;
   const attention = report ? overallStatus(report.checks) : null;
   const acc = state.account;
 
@@ -130,7 +139,12 @@ export function App() {
           </div>
           <nav className="nav" aria-label="Main">
             {NAV.filter((n) => !n.linkedOnly || state.mode === 'linked').map((n) => (
-              <button key={n.id} className={current === n.id ? 'active' : ''} aria-current={current === n.id ? 'page' : undefined} onClick={() => setPage(n.id)}>
+              <button
+                key={n.id}
+                className={current === n.id || (n.id === 'home' && current === 'summary') ? 'active' : ''}
+                aria-current={current === n.id ? 'page' : undefined}
+                onClick={() => setPage(n.id)}
+              >
                 <Icon name={n.icon} />
                 {n.label}
                 {n.id === 'checks' && attention && attention.attention > 0 ? (
@@ -141,7 +155,11 @@ export function App() {
               </button>
             ))}
             <div className="nav-label">App</div>
-            <button className={current === 'settings' ? 'active' : ''} aria-current={current === 'settings' ? 'page' : undefined} onClick={() => setPage('settings')}>
+            <button
+              className={current === 'settings' || current === 'privacy' ? 'active' : ''}
+              aria-current={current === 'settings' ? 'page' : undefined}
+              onClick={() => setPage('settings')}
+            >
               <Icon name="settings" />
               Settings
               {update.state === 'available' || update.state === 'ready' ? <span className="nav-badge">1</span> : null}
@@ -179,6 +197,8 @@ export function App() {
           {current === 'help' && <Help />}
           {current === 'account' && <Account />}
           {current === 'settings' && <SettingsPage />}
+          {current === 'privacy' && <Privacy onBack={() => setPage('settings')} />}
+          {current === 'summary' && <Summary />}
         </main>
       </div>
       <Toasts toasts={toasts} />
@@ -202,7 +222,7 @@ function Toasts({ toasts }: { toasts: { id: number; msg: string }[] }) {
 function initialPage(): PageId {
   if (import.meta.env.DEV) {
     const p = new URLSearchParams(location.search).get('page');
-    if (p && ['home', 'device', 'checks', 'help', 'account', 'settings'].includes(p)) return p as PageId;
+    if (p && ['home', 'device', 'checks', 'help', 'account', 'settings', 'privacy', 'summary'].includes(p)) return p as PageId;
   }
   return 'home';
 }

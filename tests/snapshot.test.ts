@@ -69,7 +69,11 @@ describe('buildReport (Windows)', () => {
       'updates',
       'pending-restart',
       'antivirus',
+      'antivirus_expired',
       'firewall',
+      'bitlocker',
+      'remote_tools',
+      'backup',
       'disk-space:C:',
       'disk-health',
       'temp-files',
@@ -77,6 +81,7 @@ describe('buildReport (Windows)', () => {
       'memory',
       'uptime',
       'startup-apps',
+      'crashes',
     ]);
     const by = Object.fromEntries(r.checks.map((c) => [c.id, c.status]));
     expect(by).toMatchObject({ updates: 'ok', antivirus: 'ok', 'disk-space:C:': 'warn', battery: 'warn', uptime: 'warn', 'temp-files': 'warn' });
@@ -93,7 +98,20 @@ describe('buildReport (Windows)', () => {
       { appVersion: '0.1.0', now: NOW, durationMs: 1 },
     );
     const by = Object.fromEntries(r3.checks.map((c) => [c.id, c.status]));
-    expect(by).toEqual({ updates: 'unknown', antivirus: 'unknown', firewall: 'unknown', 'disk-space': 'unknown', 'disk-health': 'unknown', memory: 'unknown', uptime: 'unknown' });
+    expect(by).toEqual({
+      updates: 'unknown',
+      antivirus: 'unknown',
+      antivirus_expired: 'unknown',
+      firewall: 'unknown',
+      bitlocker: 'unknown',
+      remote_tools: 'unknown',
+      backup: 'unknown',
+      'disk-space': 'unknown',
+      'disk-health': 'unknown',
+      memory: 'unknown',
+      uptime: 'unknown',
+      crashes: 'unknown',
+    });
   });
 });
 
@@ -133,7 +151,20 @@ describe('buildReport (macOS and others)', () => {
     expect(r.os).toMatchObject({ name: 'macOS Sequoia', version: '15.6', arch: 'arm64' });
     expect(r.cpu.brand).toBe('Apple M3');
     expect(r.disks).toEqual([{ name: 'Macintosh HD', type: 'NVMe', sizeGb: 494.4, freeGb: 301.2, health: 'ok' }]);
-    expect(r.checks.map((c) => c.id)).toEqual(['updates', 'antivirus', 'encryption', 'firewall', 'disk-space:Macintosh HD', 'disk-health', 'battery', 'memory', 'uptime']);
+    expect(r.checks.map((c) => c.id)).toEqual([
+      'updates',
+      'antivirus',
+      'encryption',
+      'firewall',
+      'remote_tools',
+      'backup',
+      'disk-space:Macintosh HD',
+      'disk-health',
+      'battery',
+      'memory',
+      'uptime',
+      'crashes',
+    ]);
   });
 
   it('cleans placeholder OEM strings', () => {
@@ -197,5 +228,55 @@ describe('friendlyMaker', async () => {
     ['', ''],
   ])('%s → %s', (raw, name) => {
     expect(friendlyMaker(raw)).toBe(name);
+  });
+});
+
+describe('0.2 checks in a full report', () => {
+  const win10Raw: RawCollection = {
+    common: common({ os: { distro: 'Microsoft Windows 10 Home', release: '10.0.19045', build: '19045', codename: '', arch: 'x64' } }),
+    windows: {
+      ...winRaw.windows!,
+      info: { ...winRaw.windows!.info, caption: 'Microsoft Windows 10 Home', displayVersion: '22H2', currentBuild: '19045', ubr: '6456' },
+      security: { ...winRaw.windows!.security, av: [{ name: 'Windows Defender', state: 397568 }, { name: 'McAfee LiveSafe', state: 0x061010 }] },
+      backup: { oneDriveFolders: [], oneDriveAccount: false, shellFolders: { documents: 'C:\\Users\\jane\\Documents' } },
+      win11: { tpmPresent: true, tpmVersion: '2.0', secureBoot: true },
+      stability: { appCrashes: 3, appHangs: 0, unexpected41: 1, unexpected6008: 1, apps: [{ name: 'SecretCrashyApp.exe', count: 3 }] },
+      bitlocker: { protection: 1 },
+      processes: ['explorer', 'AnyDesk', 'PCW-Connect', 'OneDrive'],
+    },
+    mac: null,
+  };
+  const r = buildReport(win10Raw, { appVersion: '0.2.0', now: NOW, durationMs: 1 });
+  const by = Object.fromEntries(r.checks.map((c) => [c.id, c]));
+
+  it('evaluates every new check', () => {
+    expect(r.os.name).toBe('Windows 10 Home');
+    expect(by.win10_eos.status).toBe('warn'); // NOW is 10 Oct 2026: ESU still running
+    expect(by.win11_ready.status).toBe('info');
+    expect(by.antivirus_expired.status).toBe('warn');
+    expect(by.bitlocker.status).toBe('ok');
+    expect(by.remote_tools.status).toBe('warn');
+    expect(by.backup.status).toBe('warn');
+    expect(by.crashes.status).toBe('ok');
+    expect(r.local).toEqual({
+      remoteTools: ['AnyDesk'],
+      stability: { appCrashes: 3, unexpectedShutdowns: 1, apps: [{ name: 'SecretCrashyApp', count: 3 }] },
+    });
+  });
+
+  it('never sends local-only names (remote tools, crashed apps, local notes)', () => {
+    const body = snapshotBody(r);
+    expect(body).not.toMatch(/AnyDesk/i);
+    expect(body).not.toMatch(/SecretCrashyApp/);
+    expect(body).not.toMatch(/localNote|remoteTools|stability|"local"/);
+    expect(Object.keys(shapeSnapshot(r))).not.toContain('local');
+  });
+
+  it("keeps 'info' as a status in the snapshot", () => {
+    expect(shapeSnapshot(r).checks.find((c) => c.id === 'win11_ready')?.status).toBe('info');
+  });
+
+  it('the copied device summary leaves local notes out too', () => {
+    expect(deviceSummaryText(r)).not.toMatch(/AnyDesk|SecretCrashyApp/);
   });
 });

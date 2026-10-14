@@ -136,7 +136,7 @@ export function evalFileVault(fv: RawMac['fileVault']): CheckResult {
   const base = { id: 'encryption', title: 'FileVault disk encryption', category: 'security' as const, fixes: ['open:encryption' as const] };
   switch (fv) {
     case 'on':
-      return result({ ...base, status: 'ok', detail: 'Your files are encrypted if your Mac is lost or stolen.' });
+      return result({ ...base, status: 'ok', detail: 'Your files are encrypted if your Mac is lost or stolen. Keep your FileVault recovery key somewhere safe.' });
     case 'encrypting':
       return result({ ...base, status: 'ok', detail: 'FileVault is encrypting your disk.' });
     case 'off':

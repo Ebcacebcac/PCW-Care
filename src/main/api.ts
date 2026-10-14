@@ -2,7 +2,7 @@
    the main process with Node's fetch: no cookies, no Origin header. Every
    failure is mapped to a friendly ApiError — nothing here throws. */
 
-import type { ApiError, ApiErrorCode, MeResponse, Result, SummaryResponse } from '../shared/types';
+import type { ApiError, ApiErrorCode, CallStatus, MeResponse, Result, SummaryResponse } from '../shared/types';
 import { PHONE_DISPLAY } from '../shared/contact';
 
 export const DEFAULT_API_BASE = 'https://customer.pcwhub.co.uk/api/care';
@@ -41,6 +41,7 @@ type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
 export const MESSAGES: Record<ApiErrorCode, string> = {
   bad_code: "That code didn't work. Check it and try again — it's the code you use to sign in at customer.pcwhub.co.uk.",
+  bad_screenshot: "We couldn't attach that screenshot. Remove it and try again, or send your ticket without it.",
   not_available: "PCW Care isn't available for your account yet.",
   rate_limited: 'Too many attempts. Please wait a few minutes and try again.',
   unlinked: 'This computer is no longer linked to your account. Please sign in again.',
@@ -65,6 +66,7 @@ export function mapHttpError(status: number, body: { error?: unknown; code?: unk
   if (status === 403 && code === 'not_available') return apiError('not_available', status);
   if (status === 403 && code === 'not_maintenance') return apiError('not_maintenance', status);
   if (status === 409 && code === 'already_requested') return apiError('already_requested', status);
+  if (status === 400 && code === 'bad_screenshot') return apiError('bad_screenshot', status);
   if (status === 429) return apiError('rate_limited', status);
   if (status === 400 || status === 413 || status === 422) return apiError('invalid', status, serverMsg || undefined);
   if (status >= 500) return apiError('server', status);
@@ -165,8 +167,25 @@ export class CareApi {
     return this.request<null>('POST', '/report', snapshotJson);
   }
 
-  createTicket(input: { subject: string; message: string; includeReport: boolean }): Promise<Result<{ ticket: { id: number; ref: string } }>> {
+  /* `screenshot` is the contract 0.2 addition; older servers ignore it. */
+  createTicket(input: {
+    subject: string;
+    message: string;
+    includeReport: boolean;
+    screenshot?: { mime: 'image/jpeg' | 'image/png'; data: string };
+  }): Promise<Result<{ ticket: { id: number; ref: string }; attachmentId?: number }>> {
     return this.request('POST', '/tickets', input);
+  }
+
+  /* GET /call-status (contract 0.2). A 404 means the server doesn't have
+     it yet: the feature is hidden rather than shown as an error. */
+  async callStatus(): Promise<Result<CallStatus>> {
+    const r = await this.request<unknown>('GET', '/call-status');
+    if (!r.ok) {
+      if (r.error.status === 404) return { ok: true, data: { state: 'unavailable' } };
+      return r;
+    }
+    return { ok: true, data: parseCallStatus(r.data) };
   }
 
   requestRemoteSupport(input: { preferred: 'asap' | 'later'; note?: string }): Promise<
@@ -178,4 +197,21 @@ export class CareApi {
   unlink(): Promise<Result<null>> {
     return this.request<null>('POST', '/unlink', {});
   }
+}
+
+/* Validates GET /call-status. Anything unexpected counts as "not calling"
+   — never as a verified call. */
+export function parseCallStatus(body: unknown): CallStatus {
+  const b = body as { calling?: unknown; staffName?: unknown; expiresAt?: unknown } | null;
+  if (!b || typeof b !== 'object' || b.calling !== true) return { state: 'not_calling' };
+  const name = typeof b.staffName === 'string' ? b.staffName.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 40) : '';
+  let expiresAt: string | null = null;
+  if (typeof b.expiresAt === 'string') {
+    const t = new Date(b.expiresAt);
+    if (!Number.isNaN(t.getTime())) {
+      if (t.getTime() <= Date.now()) return { state: 'not_calling' };
+      expiresAt = t.toISOString();
+    }
+  }
+  return { state: 'calling', staffName: name || 'Someone', expiresAt };
 }

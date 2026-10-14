@@ -223,6 +223,7 @@ function start(): void {
     // First check shortly after start, then a daily report while linked.
     setTimeout(() => void controller.runCheck().catch(() => undefined), 2500);
     setInterval(() => void controller.dailyTick(), 30 * 60 * 1000).unref();
+    controller.startRepairWatch();
     controller.updater.start();
   });
 

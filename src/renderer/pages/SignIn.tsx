@@ -4,12 +4,14 @@ import { Icon } from '../components/Icon';
 import { Spinner } from '../components/ui';
 import { PHONE_DISPLAY } from '../../shared/contact';
 import logo from '../assets/logo.png';
+import { Privacy } from './Privacy';
 
 export function SignIn() {
   const { api, state, setState, toast } = useCare();
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [privacy, setPrivacy] = useState(false);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -28,6 +30,14 @@ export function SignIn() {
     } else {
       setError(r.error.message);
     }
+  }
+
+  if (privacy) {
+    return (
+      <div className="signin-privacy">
+        <Privacy onBack={() => setPrivacy(false)} backLabel="Back to sign in" />
+      </div>
+    );
   }
 
   return (
@@ -122,6 +132,11 @@ export function SignIn() {
               {PHONE_DISPLAY}
             </button>{' '}
             and we’ll set you up.
+          </p>
+          <p className="small-print" style={{ marginTop: 6 }}>
+            <button type="button" className="link" onClick={() => setPrivacy(true)}>
+              What PCW Care shares, and what stays on your computer
+            </button>
           </p>
         </form>
       </section>

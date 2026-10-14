@@ -7,7 +7,7 @@ import type { DeviceReport, HealthSnapshot, Status, DiskType, DeviceType } from 
 
 export const MAX_SNAPSHOT_BYTES = 64 * 1024;
 
-const STATUSES: Status[] = ['ok', 'warn', 'bad', 'unknown'];
+const STATUSES: Status[] = ['ok', 'warn', 'bad', 'info', 'unknown'];
 const DISK_TYPES: DiskType[] = ['SSD', 'HDD', 'NVMe', 'unknown'];
 const DEVICE_TYPES: DeviceType[] = ['laptop', 'desktop', 'unknown'];
 

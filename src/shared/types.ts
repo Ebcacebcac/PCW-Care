@@ -1,9 +1,11 @@
 /* Types shared by the main process, the preload bridge and the renderer.
    Nothing in here may import Node or Electron — the renderer uses it too. */
 
-export type Status = 'ok' | 'warn' | 'bad' | 'unknown';
+/* 'info' (0.2): something worth knowing that isn't a problem — e.g. "your
+   computer is probably ready for Windows 11". Never counts as attention. */
+export type Status = 'ok' | 'warn' | 'bad' | 'info' | 'unknown';
 
-export type CheckCategory = 'storage' | 'memory' | 'battery' | 'updates' | 'security' | 'performance';
+export type CheckCategory = 'storage' | 'backup' | 'memory' | 'battery' | 'updates' | 'security' | 'performance';
 
 /* A fix the app can perform. The renderer only ever sends one of these ids
    back; the main process looks up what it means (never a URL or command). */
@@ -15,6 +17,9 @@ export type FixId =
   | 'open:storage'
   | 'open:startup'
   | 'open:battery'
+  | 'open:backup'
+  | 'open:apps'
+  | 'open:recovery-key'
   | 'restart'
   | 'clean-temp';
 
@@ -27,6 +32,9 @@ export interface CheckResult {
   fixes: FixId[];
   /* Suggest contacting PC Workshop (e.g. failing disk, worn battery). */
   askUs?: boolean;
+  /* Shown on this computer only (e.g. the name of a remote access app or
+     which apps crashed). Never part of the snapshot sent to PC Workshop. */
+  localNote?: string;
 }
 
 export type DeviceType = 'laptop' | 'desktop' | 'unknown';
@@ -88,6 +96,19 @@ export interface DeviceReport {
   battery: BatteryInfo | null;
   uptimeHours: number | null;
   checks: CheckResult[];
+  /* Details that stay on this computer (0.2): never sent — see snapshot.ts. */
+  local?: LocalDetails;
+}
+
+export interface LocalDetails {
+  /* Remote access apps seen running (not PCW-Connect). */
+  remoteTools?: string[];
+  /* Crash history for the last 30 days. */
+  stability?: {
+    appCrashes: number | null;
+    unexpectedShutdowns: number | null;
+    apps: { name: string; count: number }[];
+  } | null;
 }
 
 /* The health snapshot sent to PC Workshop (POST /report) — API contract v1. */
@@ -134,6 +155,7 @@ export interface SummaryResponse {
 
 export type ApiErrorCode =
   | 'bad_code'
+  | 'bad_screenshot'
   | 'not_available'
   | 'rate_limited'
   | 'unlinked'
@@ -186,6 +208,10 @@ export type FixOutcome =
 export interface Settings {
   launchAtLogin: boolean;
   launchAtLoginAvailable: boolean;
+  /* The customer has answered the "start when I sign in?" question. */
+  launchAtLoginAsked: boolean;
+  /* Native notifications when a repair, invoice or ticket changes. */
+  repairNotifications: boolean;
 }
 
 export type UpdateState =
@@ -198,7 +224,32 @@ export type UpdateState =
   | { state: 'ready'; version: string }
   | { state: 'error'; message: string };
 
-export interface TicketInput { subject: string; message: string; includeReport: boolean }
+export interface TicketInput {
+  subject: string;
+  message: string;
+  includeReport: boolean;
+  /* id from captureScreenshot(); the image itself stays in the main process. */
+  screenshotId?: string | null;
+}
+
+export type ScreenshotResult =
+  | { ok: true; id: string; dataUrl: string; bytes: number; width: number; height: number }
+  | { ok: false; message: string };
+
+/* "Is this really PC Workshop calling?" (GET /call-status, contract 0.2).
+   'unavailable' = the server doesn't offer it yet (feature hidden). */
+export type CallStatus =
+  | { state: 'calling'; staffName: string; expiresAt: string | null }
+  | { state: 'not_calling' }
+  | { state: 'unavailable' }
+  | { state: 'error'; message: string };
+
+/* One locally stored check result, for the monthly health summary. */
+export interface HistoryEntry {
+  at: string;
+  checks: { id: string; title: string; status: Status }[];
+  mainDisk: { name: string; freeGb: number; sizeGb: number } | null;
+}
 export interface RemoteInput { preferred: 'asap' | 'later'; note: string }
 
 export type ContactTarget = 'phone' | 'email' | 'website' | 'hub' | 'book-in' | 'support-page' | 'release-page';
@@ -209,7 +260,7 @@ export type AppEvent =
   | { type: 'update'; update: UpdateState }
   | { type: 'navigate'; page: PageId; runCheck?: boolean };
 
-export type PageId = 'home' | 'device' | 'checks' | 'help' | 'account' | 'settings';
+export type PageId = 'home' | 'device' | 'checks' | 'help' | 'account' | 'settings' | 'privacy' | 'summary';
 
 /* The API the preload exposes as window.pcwCare. */
 /** PCW-Connect (the remote support client) on this computer. */
@@ -236,7 +287,11 @@ export interface CareBridge {
 
   getSummary(): Promise<Result<SummaryResponse>>;
   refreshAccount(): Promise<Result<MeResponse>>;
-  createTicket(input: TicketInput): Promise<Result<{ ticket: { id: number; ref: string } }>>;
+  createTicket(input: TicketInput): Promise<Result<{ ticket: { id: number; ref: string }; attachmentId?: number }>>;
+  captureScreenshot(): Promise<ScreenshotResult>;
+  discardScreenshot(id: string): Promise<void>;
+  getCallStatus(): Promise<CallStatus>;
+  getHistory(): Promise<HistoryEntry[]>;
   requestRemoteSupport(input: RemoteInput): Promise<Result<{ request: { id: number; status: string }; ticket: { id: number; ref: string } }>>;
 
   getConnectStatus(withId: boolean): Promise<ConnectStatus>;
@@ -247,6 +302,7 @@ export interface CareBridge {
 
   getSettings(): Promise<Settings>;
   setLaunchAtLogin(on: boolean): Promise<Settings>;
+  setRepairNotifications(on: boolean): Promise<Settings>;
   getUpdateState(): Promise<UpdateState>;
   checkForUpdates(): Promise<UpdateState>;
   installUpdate(): Promise<void>;

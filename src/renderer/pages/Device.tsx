@@ -15,7 +15,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-const HEALTH_WORD: Record<Status, string> = { ok: 'Healthy', warn: 'Warning', bad: 'Failing', unknown: 'Unknown' };
+const HEALTH_WORD: Record<Status, string> = { ok: 'Healthy', warn: 'Warning', bad: 'Failing', info: 'OK', unknown: 'Unknown' };
 
 export function Device() {
   const { report, progress, copy, runCheck } = useCare();
@@ -197,7 +197,50 @@ export function Device() {
             </dl>
           </section>
         ) : null}
+
+        <LocalOnly />
       </div>
     </div>
+  );
+}
+
+/* Stability and remote access apps (0.2): the names are shown here and
+   nowhere else — they're never sent to PC Workshop. */
+function LocalOnly() {
+  const { report, state } = useCare();
+  const local = report?.local;
+  if (!local || (!local.stability && !local.remoteTools)) return null;
+  const st = local.stability;
+  const mac = state.platform === 'darwin';
+  return (
+    <section className="card card-pad span-2">
+      <h2 className="card-title">Stability and remote access</h2>
+      <p className="card-sub local-only-note">
+        <Icon name="lock" />
+        Only shown on this computer. PC Workshop gets the numbers, never the app names.
+      </p>
+      <dl className="dl" style={{ marginTop: 10 }}>
+        {st ? (
+          <>
+            <Row label="App crashes (30 days)">
+              <span className="num">{st.appCrashes ?? '—'}</span>
+            </Row>
+            <Row label={mac ? 'Unexpected restarts' : 'Unexpected shutdowns'}>
+              <span className="num">{st.unexpectedShutdowns ?? '—'}</span>
+            </Row>
+            {st.apps.length ? (
+              <Row label="Apps that crashed">
+                <span className="selectable">{st.apps.map((a) => `${a.name} (${a.count})`).join(', ')}</span>
+              </Row>
+            ) : null}
+          </>
+        ) : null}
+        {local.remoteTools ? (
+          <Row label="Remote access apps running">
+            {local.remoteTools.length ? <span className="selectable">{local.remoteTools.join(', ')}</span> : 'None (PCW-Connect doesn’t count)'}
+          </Row>
+        ) : null}
+      </dl>
+    </section>
   );
 }

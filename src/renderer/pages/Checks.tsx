@@ -5,7 +5,10 @@ import { useCare } from '../context';
 import { Icon } from '../components/Icon';
 import { CATEGORY, Pill, Spinner, StatusIcon, fixLabel } from '../components/ui';
 
-const ORDER: CheckCategory[] = ['updates', 'security', 'storage', 'battery', 'memory', 'performance'];
+const ORDER: CheckCategory[] = ['updates', 'security', 'backup', 'storage', 'battery', 'memory', 'performance'];
+
+/* Fixes worth offering even when a check is fine. */
+const ALWAYS_OFFERED: FixId[] = ['clean-temp', 'open:recovery-key'];
 
 export function Checks() {
   const { report, progress, runCheck } = useCare();
@@ -14,6 +17,7 @@ export function Checks() {
     ok: checks.filter((c) => c.status === 'ok').length,
     attention: checks.filter((c) => c.status === 'warn').length,
     bad: checks.filter((c) => c.status === 'bad').length,
+    info: checks.filter((c) => c.status === 'info').length,
     unknown: checks.filter((c) => c.status === 'unknown').length,
   };
 
@@ -43,6 +47,7 @@ export function Checks() {
             <Pill status="ok">{counts.ok} looking good</Pill>
             {counts.attention ? <Pill status="warn">{counts.attention} worth a look</Pill> : null}
             {counts.bad ? <Pill status="bad">{counts.bad} to fix</Pill> : null}
+            {counts.info ? <Pill status="info">{counts.info} good to know</Pill> : null}
             {counts.unknown ? <Pill status="unknown">{counts.unknown} not checked</Pill> : null}
             <span className="meta">Last checked {relativeTime(report.collectedAt)}</span>
           </div>
@@ -74,7 +79,7 @@ function CheckRow({ check }: { check: CheckResult }) {
   const [busy, setBusy] = useState<FixId | null>(null);
   const [outcome, setOutcome] = useState<{ ok: boolean; text: string } | null>(null);
   const needsWork = check.status === 'warn' || check.status === 'bad';
-  const fixes = needsWork || check.status === 'unknown' ? check.fixes : check.fixes.filter((f) => f === 'clean-temp');
+  const fixes = needsWork || check.status === 'unknown' ? check.fixes : check.fixes.filter((f) => ALWAYS_OFFERED.includes(f));
 
   async function fix(f: FixId) {
     setBusy(f);
@@ -95,6 +100,12 @@ function CheckRow({ check }: { check: CheckResult }) {
       <div>
         <h3>{check.title}</h3>
         <p className="selectable">{check.detail}</p>
+        {check.localNote ? (
+          <p className="local-note selectable" title="Only shown on this computer — not sent to PC Workshop">
+            <Icon name="lock" />
+            {check.localNote}
+          </p>
+        ) : null}
         {outcome ? <p className={`outcome${outcome.ok ? '' : ' err'}`}>{outcome.text}</p> : null}
       </div>
       <div className="check-actions">
@@ -109,7 +120,7 @@ function CheckRow({ check }: { check: CheckResult }) {
             {fixLabel(f, state.platform)}
           </button>
         ))}
-        {needsWork ? (
+        {needsWork || (check.status === 'info' && check.askUs) ? (
           <button className="btn btn-sm btn-ghost" onClick={() => askUs(check)}>
             Ask PC Workshop
           </button>

@@ -7,11 +7,14 @@ import type { DeviceReport, MeResponse } from '../shared/types';
 
 export interface StoredSettings {
   mode: 'guest' | 'linked' | null;
-  /* null = the customer hasn't chosen yet (turned on after first sign-in) */
+  /* null = the customer hasn't been asked yet. Off until they say yes to
+     the one-time question shown after signing in (0.2). */
   launchAtLogin: boolean | null;
   account: MeResponse | null;
   lastReportSentAt: string | null;
   trayHintShown: boolean;
+  /* 0.2: notifications when a repair, invoice or ticket changes */
+  repairNotifications: boolean;
 }
 
 const DEFAULTS: StoredSettings = {
@@ -20,6 +23,7 @@ const DEFAULTS: StoredSettings = {
   account: null,
   lastReportSentAt: null,
   trayHintShown: false,
+  repairNotifications: true,
 };
 
 export class JsonFile<T extends object> {

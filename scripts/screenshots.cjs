@@ -29,6 +29,16 @@ const shots = [
   ['settings', 'linked', 'settings'],
   ['settings-mac', 'mac', 'settings'],
   ['home-guest', 'guest', 'home'],
+  // 0.2
+  ['home-win10', 'win10', 'home'],
+  ['home-launch-ask', 'linked&launch=ask', 'home'],
+  ['home-call-yes', 'scam&call=yes', 'home'],
+  ['home-call-off', 'linked&call=off', 'home'],
+  ['checks-win10', 'win10', 'checks'],
+  ['checks-scam', 'scam', 'checks'],
+  ['device-win10', 'win10', 'device'],
+  ['privacy', 'linked', 'privacy'],
+  ['summary', 'maintenance', 'summary'],
 ];
 
 (async () => {
@@ -69,6 +79,31 @@ const shots = [
     await page.click('text=Ask PC Workshop >> nth=0');
     await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(out, `help-prefilled-${scheme}.png`) });
+    // 0.2: screenshot on a ticket, refused screenshot, privacy from sign-in
+    await page.goto(`${base}?scenario=linked&page=help`);
+    await page.waitForTimeout(500);
+    await page.click('text=Take a screenshot');
+    await page.waitForTimeout(1000);
+    await page.screenshot({ path: path.join(out, `help-screenshot-${scheme}.png`) });
+    await page.goto(`${base}?scenario=linked&page=help&shot=bad`);
+    await page.waitForTimeout(500);
+    await page.fill('#t-subject', 'Printer error');
+    await page.fill('#t-message', 'It says 0x709');
+    await page.click('text=Take a screenshot');
+    await page.waitForTimeout(1000);
+    await page.click('text=Send ticket');
+    await page.waitForTimeout(900);
+    await page.screenshot({ path: path.join(out, `help-screenshot-bad-${scheme}.png`) });
+    await page.goto(`${base}?scenario=signin`);
+    await page.waitForTimeout(400);
+    await page.click('text=What PCW Care shares');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(out, `signin-privacy-${scheme}.png`) });
+    await page.goto(`${base}?scenario=maintenance&page=home`);
+    await page.waitForTimeout(500);
+    await page.click('text=Request remote support');
+    await page.waitForTimeout(900);
+    await page.screenshot({ path: path.join(out, `home-to-remote-${scheme}.png`) });
     if (errors.length) console.log(scheme, 'errors:', errors);
     await ctx.close();
   }

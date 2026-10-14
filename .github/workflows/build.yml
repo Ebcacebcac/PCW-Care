@@ -53,6 +53,9 @@ jobs:
         run: |
           node dist/main/collect-cli.js --full > snapshot.json
           cat snapshot.json
+      # One annotation for the whole snapshot plus one per 0.2 check. A
+      # 'warn'/'bad'/'unknown' reading is a fact about the runner, not a
+      # failure — this step only fails if the snapshot can't be read.
       - name: Summarise the snapshot
         run: node scripts/annotate-snapshot.mjs snapshot.json
       - name: Clear temporary files on a real machine
@@ -142,6 +145,47 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # Code signing is optional and driven by the environment
+      # (scripts/builder-config.cjs). Each value is only exported when it is
+      # set, so with no secrets the installers are built unsigned exactly as
+      # before. Windows: Azure Artifact Signing (secrets AZURE_TENANT_ID,
+      # AZURE_CLIENT_ID, AZURE_CLIENT_SECRET; repository variables
+      # AZURE_SIGN_ENDPOINT, AZURE_SIGN_ACCOUNT, AZURE_SIGN_PROFILE and
+      # optionally AZURE_SIGN_PUBLISHER). macOS: Developer ID + notarisation
+      # (secrets CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID,
+      # APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID).
+      - name: Signing credentials (only when configured)
+        shell: bash
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGN_ENDPOINT: ${{ vars.AZURE_SIGN_ENDPOINT }}
+          AZURE_SIGN_ACCOUNT: ${{ vars.AZURE_SIGN_ACCOUNT }}
+          AZURE_SIGN_PROFILE: ${{ vars.AZURE_SIGN_PROFILE }}
+          AZURE_SIGN_PUBLISHER: ${{ vars.AZURE_SIGN_PUBLISHER }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            names="AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SIGN_ENDPOINT AZURE_SIGN_ACCOUNT AZURE_SIGN_PROFILE AZURE_SIGN_PUBLISHER"
+          else
+            names="CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID"
+          fi
+          for n in $names; do
+            v="${!n}"
+            if [ -n "$v" ]; then
+              { echo "$n<<__PCW_SIGN_EOF__"; echo "$v"; echo "__PCW_SIGN_EOF__"; } >> "$GITHUB_ENV"
+            fi
+          done
+          if [ "$RUNNER_OS" = "macOS" ] && [ -z "$CSC_LINK" ]; then
+            # Unsigned: never pick up a stray identity from the runner's keychain.
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+          fi
+          node -e "const c=require('./scripts/builder-config.cjs'); const win=process.env.RUNNER_OS==='Windows'; const on=win ? !!c.windowsSigning(process.env) : c.macSigning(process.env); console.log('::notice title=Code signing::' + (win ? 'Windows (Azure Artifact Signing)' : 'macOS (Developer ID + notarisation)') + ': ' + (on ? 'signed' : 'not configured - building unsigned'))"
       - name: Build and upload to the draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

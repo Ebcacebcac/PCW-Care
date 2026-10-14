@@ -17,6 +17,9 @@ export async function runSelfTest(appVersion: string, full = false): Promise<num
     process.stderr.write(
       `self-test: ${report.checks.length} checks ${JSON.stringify(counts)} in ${report.durationMs} ms, snapshot ${Buffer.byteLength(body)} bytes (limit ${MAX_SNAPSHOT_BYTES})\n`,
     );
+    // One line per check, so a run's log shows every reading. A warn, bad
+    // or unknown result is not a failure — only a crash (above) is.
+    for (const c of report.checks) process.stderr.write(`  [${c.status}] ${c.id}\n`);
     if (Buffer.byteLength(body) > MAX_SNAPSHOT_BYTES) return 2;
     return 0;
   } catch (err) {

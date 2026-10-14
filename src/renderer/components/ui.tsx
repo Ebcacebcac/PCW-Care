@@ -2,8 +2,8 @@ import { useEffect, type ReactNode } from 'react';
 import type { CheckCategory, DeviceType, FixId, Status } from '../../shared/types';
 import { Icon, type IconName } from './Icon';
 
-export const STATUS_ICON: Record<Status, IconName> = { ok: 'check', warn: 'alert', bad: 'x', unknown: 'question' };
-export const STATUS_WORD: Record<Status, string> = { ok: 'Good', warn: 'Worth a look', bad: 'Needs fixing', unknown: 'Not checked' };
+export const STATUS_ICON: Record<Status, IconName> = { ok: 'check', warn: 'alert', bad: 'x', info: 'info', unknown: 'question' };
+export const STATUS_WORD: Record<Status, string> = { ok: 'Good', warn: 'Worth a look', bad: 'Needs fixing', info: 'Good to know', unknown: 'Not checked' };
 
 export function StatusIcon({ status, label }: { status: Status; label?: string }) {
   return (
@@ -58,6 +58,7 @@ export const CATEGORY: Record<CheckCategory, { label: string; icon: IconName }> 
   updates: { label: 'Updates', icon: 'updates' },
   security: { label: 'Security', icon: 'shield' },
   storage: { label: 'Storage', icon: 'disk' },
+  backup: { label: 'Backup', icon: 'cloud' },
   battery: { label: 'Battery', icon: 'battery' },
   memory: { label: 'Memory', icon: 'chip' },
   performance: { label: 'Performance', icon: 'speed' },
@@ -80,6 +81,12 @@ export function fixLabel(fix: FixId, platform: string): string {
       return 'Manage startup apps';
     case 'open:battery':
       return 'Battery settings';
+    case 'open:backup':
+      return mac ? 'Open Time Machine' : 'Backup settings';
+    case 'open:apps':
+      return 'Installed apps';
+    case 'open:recovery-key':
+      return 'Find my recovery key';
     case 'restart':
       return 'Restart now';
     case 'clean-temp':

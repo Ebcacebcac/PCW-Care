@@ -1,7 +1,7 @@
 {
   "name": "pcw-care",
   "productName": "PCW Care",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": true,
   "description": "PCW Care keeps an eye on your computer and gets you help from PC Workshop.",
   "author": {

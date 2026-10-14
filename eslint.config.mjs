@@ -8,7 +8,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['src/main/**/*.ts', 'tests/**/*.ts', 'scripts/**/*.{js,mjs,cjs}', '*.mjs', '*.mts'],
+    files: ['src/main/**/*.ts', 'tests/**/*.ts', 'scripts/**/*.{js,mjs,cjs}', '*.mjs', '*.mts', '*.cjs'],
     languageOptions: { globals: { ...globals.node } },
   },
   {
@@ -31,7 +31,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['scripts/**/*.cjs'],
+    files: ['scripts/**/*.cjs', '*.cjs'],
     languageOptions: { sourceType: 'commonjs' },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },

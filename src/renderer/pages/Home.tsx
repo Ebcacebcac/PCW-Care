@@ -1,10 +1,12 @@
-import type { CheckCategory, DeviceReport, Status } from '../../shared/types';
+import { useEffect, useState } from 'react';
+import type { CheckCategory, DeviceReport, Settings, Status } from '../../shared/types';
 import { categoryStatus, overallStatus } from '../../shared/status';
 import { formatGb, relativeTime } from '../../shared/format';
 import { PHONE_DISPLAY } from '../../shared/contact';
 import { useCare } from '../context';
 import { Icon, type IconName } from '../components/Icon';
 import { Bar, DeviceArt, Spinner, StatusIcon } from '../components/ui';
+import { CallCheck, NeverColdCall, useCallStatus } from '../components/Scam';
 import mark from '../assets/mark.png';
 
 function greeting(): string {
@@ -14,7 +16,11 @@ function greeting(): string {
 
 export function Home() {
   const { state, report, progress, runCheck, go, copy, api } = useCare();
-  const first = state.mode === 'linked' ? state.account?.client.firstName : null;
+  const linked = state.mode === 'linked';
+  const first = linked ? state.account?.client.firstName : null;
+  const maintenance = linked && state.account?.flags.maintenance === true;
+  const call = useCallStatus(linked);
+  const showCall = linked && call.status?.state !== 'unavailable';
 
   return (
     <div className="page">
@@ -35,11 +41,20 @@ export function Home() {
         </button>
       </div>
 
+      {linked ? <LaunchPrompt /> : null}
+
       <Hero report={report} running={progress.running} platform={state.platform} onCopy={(t) => copy(t, 'Serial number copied')} onSeeChecks={() => go('checks')} />
 
       {report ? <Tiles report={report} onOpen={() => go('checks')} /> : <TileSkeletons />}
 
-      <div className="card help-strip">
+      {maintenance ? <MaintenancePlan /> : null}
+
+      <div className="home-grid">
+        {showCall ? <CallCheck call={call} /> : null}
+        <NeverColdCall className={showCall ? '' : 'span-2'} />
+      </div>
+
+      <div className="card help-strip" style={{ marginTop: 16 }}>
         <span className="brand-mark">
           <img src={mark} alt="" />
         </span>
@@ -201,23 +216,38 @@ function Tiles({ report, onOpen }: { report: DeviceReport; onOpen: () => void })
       pct: report.battery.healthPct ?? undefined,
     });
   }
+  // The sub-line explains the worst thing in the category (0.2 added more
+  // checks to Updates and Security than the main one).
+  const worstIn = (cat: CheckCategory, main: string) => {
+    const s = categoryStatus(checks, cat);
+    const inCat = checks.filter((c) => c.category === cat);
+    return (s === 'warn' || s === 'bad' ? inCat.find((c) => c.status === s) : undefined) ?? inCat.find((c) => c.id === main);
+  };
   const upd = checks.find((c) => c.id === 'updates');
   const updStatus = categoryStatus(checks, 'updates');
+  const eos = checks.find((c) => c.id === 'win10_eos' && (c.status === 'bad' || c.status === 'warn'));
   tiles.push({
     key: 'updates',
     label: 'Updates',
     icon: 'updates',
-    value: updStatus === 'ok' ? 'Up to date' : updStatus === 'unknown' ? 'Not checked' : checks.some((c) => c.id === 'pending-restart' && c.status === 'warn') && upd?.status === 'ok' ? 'Restart needed' : 'Needs updates',
-    sub: shortDetail(upd?.detail ?? ''),
+    value: eos
+      ? 'Out of support'
+      : updStatus === 'ok'
+        ? 'Up to date'
+        : updStatus === 'unknown'
+          ? 'Not checked'
+          : checks.some((c) => c.id === 'pending-restart' && c.status === 'warn') && upd?.status === 'ok'
+            ? 'Restart needed'
+            : 'Needs updates',
+    sub: eos ? 'Windows 10 no longer gets security updates' : shortDetail(worstIn('updates', 'updates')?.detail ?? ''),
   });
   const secStatus = categoryStatus(checks, 'security');
-  const av = checks.find((c) => c.id === 'antivirus');
   tiles.push({
     key: 'security',
     label: 'Security',
     icon: 'shield',
     value: secStatus === 'ok' ? 'Protected' : secStatus === 'unknown' ? 'Not checked' : secStatus === 'bad' ? 'At risk' : 'Check settings',
-    sub: shortDetail(av?.detail ?? ''),
+    sub: shortDetail(worstIn('security', 'antivirus')?.detail ?? ''),
   });
 
   return (
@@ -245,8 +275,9 @@ function Tiles({ report, onOpen }: { report: DeviceReport; onOpen: () => void })
 }
 
 function shortDetail(detail: string): string {
-  const first = detail.split(/(?<=\.)\s/)[0] ?? '';
-  return first.replace(/^Last update installed /, 'Last update ').replace(/\.$/, '');
+  const first = (detail.split(/(?<=\.)\s/)[0] ?? '').split(' — ')[0];
+  const t = first.replace(/^Last update installed /, 'Last update ').replace(/\.$/, '');
+  return t.length > 70 ? `${t.slice(0, 68).replace(/\s+\S*$/, '')}…` : t;
 }
 
 function TileSkeletons() {
@@ -261,5 +292,75 @@ function TileSkeletons() {
         </div>
       ))}
     </div>
+  );
+}
+
+/* Start-at-login is off until the customer says yes (asked once, 0.2). */
+function LaunchPrompt() {
+  const { api } = useCare();
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void api.getSettings().then((s) => alive && setSettings(s));
+    return () => {
+      alive = false;
+    };
+  }, [api]);
+
+  if (!settings || settings.launchAtLoginAsked || !settings.launchAtLoginAvailable) return null;
+  const answer = async (on: boolean) => {
+    setBusy(true);
+    setSettings(await api.setLaunchAtLogin(on));
+    setBusy(false);
+  };
+  return (
+    <section className="card card-pad prompt-card" aria-label="Start PCW Care automatically?">
+      <span className="icon-tile">
+        <Icon name="clock" />
+      </span>
+      <div className="grow">
+        <strong>Start PCW Care when you sign in to your computer?</strong>
+        It runs quietly in the background, checks your computer once a day and lets you know about your repairs. You can change this in Settings.
+      </div>
+      <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void answer(true)}>
+        Yes, start it
+      </button>
+      <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void answer(false)}>
+        No thanks
+      </button>
+    </section>
+  );
+}
+
+function MaintenancePlan() {
+  const { go, goRemoteSupport } = useCare();
+  const items = ['Remote support when you need it', 'Daily health checks shared with our team', 'We hear about serious problems straight away', 'A monthly health summary'];
+  return (
+    <section className="card card-pad plan-card" style={{ marginTop: 16 }}>
+      <div>
+        <span className="eyebrow">Maintenance plan</span>
+        <h2 className="card-title">Your maintenance plan</h2>
+        <ul>
+          {items.map((i) => (
+            <li key={i}>
+              <Icon name="check" />
+              {i}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="plan-actions">
+        <button className="btn btn-primary" onClick={goRemoteSupport}>
+          <Icon name="remote" />
+          Request remote support
+        </button>
+        <button className="btn btn-secondary" onClick={() => go('summary')}>
+          <Icon name="calendar" />
+          This month’s health summary
+        </button>
+      </div>
+    </section>
   );
 }

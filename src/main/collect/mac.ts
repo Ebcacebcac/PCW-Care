@@ -2,8 +2,11 @@
    fixed argument list and its own timeout. Nothing here needs admin. */
 
 import fs from 'node:fs/promises';
-import type { MacUpdateItem, RawMac } from './raw';
+import os from 'node:os';
+import path from 'node:path';
+import type { MacUpdateItem, RawMac, RawMacStability, RawTimeMachine } from './raw';
 import { run } from './exec';
+import { macCrashApp } from '../checks/extra';
 
 const XPROTECT_PLISTS = [
   '/Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/Info.plist',
@@ -11,17 +14,149 @@ const XPROTECT_PLISTS = [
 ];
 
 export async function collectMac(): Promise<RawMac> {
-  const [hardware, softwareUpdate, gatekeeper, xprotectVersion, fileVault, firewall, disk, power] = await Promise.all([
-    hardwareInfo(),
-    softwareUpdates(),
-    gatekeeperStatus(),
-    xprotect(),
-    fileVaultStatus(),
-    firewallStatus(),
-    diskInfo(),
-    powerInfo(),
+  const [hardware, softwareUpdate, gatekeeper, xprotectVersion, fileVault, firewall, disk, power, timeMachine, iCloudDesktopDocuments, stability, processes] =
+    await Promise.all([
+      hardwareInfo(),
+      softwareUpdates(),
+      gatekeeperStatus(),
+      xprotect(),
+      fileVaultStatus(),
+      firewallStatus(),
+      diskInfo(),
+      powerInfo(),
+      timeMachineInfo().catch(() => null),
+      iCloudDocs().catch(() => null),
+      crashHistory().catch(() => null),
+      processList().catch(() => null),
+    ]);
+  return {
+    hardware,
+    softwareUpdate,
+    gatekeeper,
+    xprotectVersion,
+    fileVault,
+    firewall,
+    smart: disk.smart,
+    volumeName: disk.volumeName,
+    power,
+    timeMachine,
+    iCloudDesktopDocuments,
+    stability,
+    processes,
+  };
+}
+
+/* ── 0.2: Time Machine (no admin) ── */
+
+/* `tmutil destinationinfo`: "No destinations configured." or one block of
+   "Name : …" lines per destination. */
+export function parseTmDestinations(text: string): boolean | null {
+  if (/No destinations configured/i.test(text)) return false;
+  if (/^\s*(Name|ID|Kind)\s*:/im.test(text)) return true;
+  return null;
+}
+
+function localStamp(y: string, mo: string, d: string, h: string, mi: string, s: string): string | null {
+  const t = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
+  return Number.isNaN(t.getTime()) ? null : t.toISOString();
+}
+
+/* `tmutil latestbackup` prints a path ending in e.g.
+   "2026-10-13-101530.backup" (local time). */
+export function parseTmLatest(text: string): string | null {
+  const m = /(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(text);
+  return m ? localStamp(m[1], m[2], m[3], m[4], m[5], m[6]) : null;
+}
+
+/* `defaults read /Library/Preferences/com.apple.TimeMachine`: AutoBackup
+   and each destination's SnapshotDates ("2026-10-13 09:15:30 +0000"). */
+export function parseTmPrefs(text: string): { autoBackup: boolean | null; latest: string | null } {
+  const ab = /AutoBackup\s*=\s*(\d)/.exec(text);
+  let latest: number | null = null;
+  for (const m of text.matchAll(/(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{2})(\d{2})/g)) {
+    const t = new Date(`${m[1]}T${m[2]}${m[3]}:${m[4]}`).getTime();
+    if (Number.isFinite(t) && (latest == null || t > latest)) latest = t;
+  }
+  return { autoBackup: ab ? ab[1] !== '0' : null, latest: latest != null ? new Date(latest).toISOString() : null };
+}
+
+async function timeMachineInfo(): Promise<RawTimeMachine> {
+  const [dest, latest, prefs] = await Promise.all([
+    run('/usr/bin/tmutil', ['destinationinfo'], 15_000),
+    run('/usr/bin/tmutil', ['latestbackup'], 15_000),
+    run('/usr/bin/defaults', ['read', '/Library/Preferences/com.apple.TimeMachine'], 10_000),
   ]);
-  return { hardware, softwareUpdate, gatekeeper, xprotectVersion, fileVault, firewall, smart: disk.smart, volumeName: disk.volumeName, power };
+  const p = parseTmPrefs(prefs.stdout);
+  const fromTm = latest.ok ? parseTmLatest(latest.stdout) : null;
+  const best = [fromTm, p.latest].filter((x): x is string => !!x).sort().pop() ?? null;
+  let configured = parseTmDestinations(dest.stdout + '\n' + dest.stderr);
+  if (configured == null && (best || /Destinations\s*=\s*\(\s*\{/.test(prefs.stdout))) configured = true;
+  return { configured, autoBackup: p.autoBackup, latest: best };
+}
+
+/* iCloud Drive "Desktop & Documents Folders" — Finder's own preference,
+   read without touching the iCloud Drive folder (which could prompt). */
+async function iCloudDocs(): Promise<boolean | null> {
+  const [desk, docs] = await Promise.all([
+    run('/usr/bin/defaults', ['read', 'com.apple.finder', 'FXICloudDriveDesktop'], 5_000),
+    run('/usr/bin/defaults', ['read', 'com.apple.finder', 'FXICloudDriveDocuments'], 5_000),
+  ]);
+  const on = (r: { ok: boolean; stdout: string }) => r.ok && /^\s*(1|true|yes)\s*$/i.test(r.stdout);
+  if (on(desk) || on(docs)) return true;
+  return desk.ok || docs.ok ? false : null;
+}
+
+/* ── 0.2: crash reports in the last 30 days (counts + app names, local) ── */
+
+const CRASH_DIRS = () => [path.join(os.homedir(), 'Library', 'Logs', 'DiagnosticReports'), '/Library/Logs/DiagnosticReports'];
+
+export function tallyCrashFiles(files: { name: string; mtimeMs: number }[], now: number): RawMacStability {
+  const since = now - 30 * 86_400_000;
+  const apps = new Map<string, number>();
+  let appCrashes = 0;
+  let panics = 0;
+  for (const f of files) {
+    if (!(f.mtimeMs >= since)) continue;
+    const c = macCrashApp(f.name);
+    if (c.kind === 'panic') panics++;
+    else if (c.kind === 'app') {
+      appCrashes++;
+      apps.set(c.name, (apps.get(c.name) ?? 0) + 1);
+    }
+  }
+  return { appCrashes, panics, apps: [...apps].map(([name, count]) => ({ name, count })) };
+}
+
+async function crashHistory(): Promise<RawMacStability | null> {
+  const files: { name: string; mtimeMs: number }[] = [];
+  let readable = false;
+  for (const dir of CRASH_DIRS()) {
+    let names: string[];
+    try {
+      names = await fs.readdir(dir);
+      readable = true;
+    } catch {
+      continue;
+    }
+    for (const name of names.slice(0, 5000)) {
+      if (!/\.(ips|crash|panic)$/i.test(name)) continue;
+      try {
+        const st = await fs.stat(path.join(dir, name));
+        if (st.isFile()) files.push({ name, mtimeMs: st.mtimeMs });
+      } catch {
+        /* gone or unreadable */
+      }
+    }
+  }
+  return readable ? tallyCrashFiles(files, Date.now()) : null;
+}
+
+/* ── 0.2: running executables (local only, for remote access apps) ── */
+
+async function processList(): Promise<string[] | null> {
+  const r = await run('/bin/ps', ['-axo', 'comm='], 10_000);
+  if (!r.ok) return null;
+  return [...new Set(r.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean))];
 }
 
 async function hardwareInfo(): Promise<RawMac['hardware']> {

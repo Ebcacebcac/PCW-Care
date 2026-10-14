@@ -2,9 +2,14 @@
 
    Windows: downloads in the background, then "Restart to update".
    macOS: without an Apple Developer ID signature Squirrel.Mac can't install
-   updates, so we only check — the app then says "A new version is
-   available" with a button that opens the release page. */
+   updates, so unsigned builds only check — the app then says "A new
+   version is available" with a button that opens the release page. Builds
+   signed and notarised in CI carry `pcwCareSigned: true` in their
+   package.json (electron-builder extraMetadata, see
+   scripts/builder-config.cjs) and update themselves like Windows. */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { app } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import type { UpdateState } from '../shared/types';
@@ -13,7 +18,7 @@ const CHECK_EVERY_MS = 6 * 3600 * 1000;
 
 export class Updater {
   private state: UpdateState = { state: 'idle' };
-  private readonly manual = process.platform === 'darwin';
+  private readonly manual = process.platform === 'darwin' && !packagedAsSigned();
   private started = false;
 
   constructor(private readonly onChange: (s: UpdateState) => void) {}
@@ -73,5 +78,14 @@ export class Updater {
     if (this.state.state === 'ready' && !this.manual) {
       autoUpdater.quitAndInstall(false, true);
     }
+  }
+}
+
+function packagedAsSigned(): boolean {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')) as { pcwCareSigned?: unknown };
+    return pkg.pcwCareSigned === true;
+  } catch {
+    return false;
   }
 }

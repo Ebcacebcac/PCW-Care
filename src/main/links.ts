@@ -55,6 +55,8 @@ const SETTINGS: Record<'win32' | 'darwin', Partial<Record<FixId, string>>> = {
     'open:storage': 'ms-settings:storagesense',
     'open:startup': 'ms-settings:startupapps',
     'open:battery': 'ms-settings:batterysaver',
+    'open:backup': 'ms-settings:backup',
+    'open:apps': 'ms-settings:appsfeatures',
   },
   darwin: {
     'open:updates': 'x-apple.systempreferences:com.apple.Software-Update-Settings.extension',
@@ -63,6 +65,7 @@ const SETTINGS: Record<'win32' | 'darwin', Partial<Record<FixId, string>>> = {
     'open:firewall': 'x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall',
     'open:storage': 'x-apple.systempreferences:com.apple.settings.Storage',
     'open:battery': 'x-apple.systempreferences:com.apple.Battery-Settings.extension',
+    'open:backup': 'x-apple.systempreferences:com.apple.Time-Machine-Settings.extension',
   },
 };
 
@@ -79,6 +82,9 @@ const FIX_IDS: FixId[] = [
   'open:storage',
   'open:startup',
   'open:battery',
+  'open:backup',
+  'open:apps',
+  'open:recovery-key',
   'restart',
   'clean-temp',
 ];

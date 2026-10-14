@@ -2,12 +2,13 @@
    DeviceReport. Never throws: anything that fails becomes "unknown". This
    module must not import Electron — the headless self-test uses it. */
 
-import type { BatteryInfo, CheckResult, DeviceReport, DeviceType } from '../../shared/types';
+import type { BatteryInfo, CheckResult, DeviceReport, DeviceType, LocalDetails } from '../../shared/types';
 import type { RawCollection, RawCommon, RawMac, RawWindows } from './raw';
 import { collectCommon } from './common';
 import { collectWindows } from './windows';
 import { collectMac } from './mac';
 import * as ev from '../checks/evaluate';
+import * as ex from '../checks/extra';
 
 export async function collectRaw(platform: string = process.platform): Promise<RawCollection> {
   const isWin = platform === 'win32';
@@ -113,14 +114,29 @@ export function buildReport(raw: RawCollection, opts: { appVersion: string; now:
   const battery: BatteryInfo | null = ev.batteryFromRaw(common, mac);
   const uptimeHours = common.uptimeSec != null ? Math.round((common.uptimeSec / 3600) * 10) / 10 : null;
 
-  const checks = buildChecks({ platform, windows, mac, volumes: disks.volumes, physical: disks.physical, battery, uptimeHours, totalGb, now: opts.now });
+  const os = osDetails(raw);
+  const local: LocalDetails = {};
+  const checks = buildChecks({
+    platform,
+    windows,
+    mac,
+    volumes: disks.volumes,
+    physical: disks.physical,
+    battery,
+    uptimeHours,
+    totalGb,
+    now: opts.now,
+    os,
+    cpuBrand,
+    local,
+  });
 
   return {
     collectedAt: opts.now.toISOString(),
     durationMs: opts.durationMs,
     appVersion: opts.appVersion,
     device: { manufacturer, model, serial, type: deviceType(common, mac, model), name },
-    os: osDetails(raw),
+    os,
     cpu: {
       brand: cpuBrand,
       cores: common.cpu?.physicalCores || null,
@@ -134,6 +150,7 @@ export function buildReport(raw: RawCollection, opts: { appVersion: string; now:
     battery,
     uptimeHours,
     checks,
+    local,
   };
 }
 
@@ -147,20 +164,39 @@ function buildChecks(o: {
   uptimeHours: number | null;
   totalGb: number | null;
   now: Date;
+  os: DeviceReport['os'];
+  cpuBrand: string;
+  /* filled with the details that stay on this computer */
+  local: LocalDetails;
 }): CheckResult[] {
   const out: (CheckResult | null)[] = [];
   if (o.platform === 'win32') {
     const w = o.windows;
+    const systemDisk = o.volumes.find((v) => /^C:?$/i.test(v.name)) ?? o.volumes[0] ?? null;
     out.push(ev.evalWindowsUpdate(w?.updates ?? null, o.now));
     out.push(ev.evalPendingRestart(w?.updates ?? null));
+    out.push(ex.evalWin10Eos(o.os, o.now));
+    out.push(ex.evalWin11Ready(o.os, { cpuBrand: o.cpuBrand, ramGb: o.totalGb, systemDiskGb: systemDisk?.sizeGb ?? null }, w?.win11 ?? null));
     out.push(ev.evalWindowsAntivirus(w?.security ?? null));
+    out.push(ex.evalAntivirusExpired(w?.security ?? null));
     out.push(ev.evalWindowsFirewall(w?.security ?? null));
+    out.push(ex.evalBitLocker(w?.bitlocker ?? null));
+    const remote = ex.evalRemoteTools(w?.processes ?? null, o.platform);
+    o.local.remoteTools = remote.found;
+    out.push(remote.check);
+    const procs = w?.processes ?? null;
+    const oneDriveRunning = procs ? procs.some((p) => /^onedrive$/i.test(p)) : null;
+    out.push(ex.evalWindowsBackup(w?.backup ?? null, oneDriveRunning, o.now));
   } else if (o.platform === 'darwin') {
     const m = o.mac;
     out.push(ev.evalMacUpdates(m?.softwareUpdate ?? null));
     out.push(ev.evalMacProtection(m?.gatekeeper ?? null, m?.xprotectVersion ?? null));
     out.push(ev.evalFileVault(m?.fileVault ?? null));
     out.push(ev.evalMacFirewall(m?.firewall ?? null));
+    const remote = ex.evalRemoteTools(m?.processes ?? null, o.platform);
+    o.local.remoteTools = remote.found;
+    out.push(remote.check);
+    out.push(ex.evalMacBackup(m?.timeMachine ?? null, m?.iCloudDesktopDocuments ?? null, o.now));
   } else {
     out.push({ id: 'updates', title: 'System updates', category: 'updates', status: 'unknown', detail: 'PCW Care checks updates on Windows and macOS only.', fixes: [] });
     out.push({ id: 'antivirus', title: 'Virus protection', category: 'security', status: 'unknown', detail: 'PCW Care checks security on Windows and macOS only.', fixes: [] });
@@ -176,6 +212,11 @@ function buildChecks(o: {
   out.push(ev.evalMemory(o.totalGb));
   out.push(ev.evalUptime(o.uptimeHours, o.platform));
   if (o.platform === 'win32') out.push(ev.evalStartupApps(o.windows?.startupCount ?? null));
+  if (o.platform === 'win32' || o.platform === 'darwin') {
+    const stability = o.platform === 'win32' ? ex.stabilityFromWindows(o.windows?.stability) : ex.stabilityFromMac(o.mac?.stability ?? null);
+    o.local.stability = stability ?? null;
+    out.push(ex.evalCrashes(stability, o.platform));
+  }
   return out.filter((c): c is CheckResult => c != null);
 }
 

@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import type { ConnectStatus, RemoteRequestSummary } from '../../shared/types';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import type { ConnectStatus, RemoteRequestSummary, ScreenshotResult } from '../../shared/types';
 import { EMAIL, HOURS_NOTE, PHONE_DISPLAY, WORKSHOPS } from '../../shared/contact';
 import { formatDateTime } from '../../shared/format';
 import { useCare } from '../context';
 import { Icon } from '../components/Icon';
 import { Spinner } from '../components/ui';
+import { NeverColdCall } from '../components/Scam';
 
 export function Help() {
   const { state } = useCare();
@@ -26,6 +27,8 @@ export function Help() {
         <ConnectCard />
         <BookInCard />
         {maintenance ? <WebsiteCard /> : null}
+        <NeverColdCall full className="span-2" />
+        <TwoFactorTips />
         <Contact />
       </div>
     </div>
@@ -40,6 +43,28 @@ function TicketForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [shot, setShot] = useState<Extract<ScreenshotResult, { ok: true }> | null>(null);
+  const [shooting, setShooting] = useState(false);
+  const [shotError, setShotError] = useState<string | null>(null);
+
+  async function takeShot() {
+    setShooting(true);
+    setShotError(null);
+    if (shot) void api.discardScreenshot(shot.id);
+    const r = await api.captureScreenshot();
+    setShooting(false);
+    if (r.ok) setShot(r);
+    else {
+      setShot(null);
+      setShotError(r.message);
+    }
+  }
+
+  function removeShot() {
+    if (shot) void api.discardScreenshot(shot.id);
+    setShot(null);
+    setShotError(null);
+  }
 
   useEffect(() => {
     if (prefill) {
@@ -58,12 +83,15 @@ function TicketForm() {
     if (!m) return setError('Please tell us what you need help with.');
     setBusy(true);
     setError(null);
-    const r = await api.createTicket({ subject: s, message: m, includeReport: include });
+    const r = await api.createTicket({ subject: s, message: m, includeReport: include, screenshotId: shot?.id ?? null });
     setBusy(false);
     if (r.ok) {
       setDone(r.data.ticket.ref);
       setSubject('');
       setMessage('');
+      setShot(null);
+    } else if (r.error.code === 'bad_screenshot') {
+      setShotError(r.error.message);
     } else {
       setError(r.error.message);
     }
@@ -123,6 +151,45 @@ function TicketForm() {
             </small>
           </span>
         </label>
+        {shot ? (
+          <div className="shot">
+            <img src={shot.dataUrl} alt="Screenshot to attach" />
+            <div className="grow">
+              <strong>Screenshot attached</strong>
+              Only this picture of your screen is sent with your ticket ({Math.max(1, Math.round(shot.bytes / 1024)).toLocaleString('en-GB')} KB).
+              <div className="shot-actions">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => void takeShot()} disabled={shooting}>
+                  {shooting ? <Spinner /> : <Icon name="camera" />}
+                  Take it again
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={removeShot}>
+                  <Icon name="trash" />
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="shot">
+            <div className="grow">
+              <strong>Attach a screenshot of the problem</strong>
+              Get the problem showing on your screen first. PCW Care will hide itself for a moment and take a picture of your main screen — you’ll see it
+              before anything is sent.
+              <div className="shot-actions">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => void takeShot()} disabled={shooting}>
+                  {shooting ? <Spinner /> : <Icon name="camera" />}
+                  {shooting ? 'Taking screenshot…' : 'Take a screenshot'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {shotError ? (
+          <div className="alert s-warn" role="alert" style={{ marginTop: 12 }}>
+            <Icon name="alert" />
+            <span>{shotError}</span>
+          </div>
+        ) : null}
         {error ? (
           <div className="alert s-bad" role="alert" style={{ marginTop: 14 }}>
             <Icon name="alert" />
@@ -172,7 +239,18 @@ function TicketSignedOut() {
 }
 
 function RemoteSupport() {
-  const { api, toast } = useCare();
+  const { api, toast, helpFocus, clearHelpFocus } = useCare();
+  const ref = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (helpFocus !== 'remote') return;
+    const t = setTimeout(() => {
+      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      ref.current?.querySelector<HTMLElement>('button, textarea')?.focus({ preventScroll: true });
+      clearHelpFocus();
+    }, 50);
+    return () => clearTimeout(t);
+  }, [helpFocus, clearHelpFocus]);
   const [live, setLive] = useState<RemoteRequestSummary | null | undefined>(undefined);
   const [preferred, setPreferred] = useState<'asap' | 'later'>('asap');
   const [note, setNote] = useState('');
@@ -210,7 +288,7 @@ function RemoteSupport() {
   }
 
   return (
-    <section className="card card-pad help-card">
+    <section className="card card-pad help-card" ref={ref} id="remote-support">
       <span className="icon-tile blue">
         <Icon name="remote" />
       </span>
@@ -461,6 +539,40 @@ function Contact() {
       <p className="card-sub" style={{ marginTop: 14, fontSize: 12.5 }}>
         {HOURS_NOTE} Sunday visits are by appointment — give us a ring to arrange one.
       </p>
+    </section>
+  );
+}
+
+function TwoFactorTips() {
+  const tips: { title: string; text: string }[] = [
+    { title: 'Start with your email', text: 'Whoever gets into your email can reset every other password. Turn on two-step verification in your Gmail, Outlook or BT account’s security settings.' },
+    { title: 'Apple ID and Microsoft account', text: 'Both offer two-step sign-in — it stops someone signing in as you, even if they know your password.' },
+    { title: 'Banking and shopping', text: 'Use your bank’s own app to approve payments, and turn on extra sign-in checks for Amazon, PayPal and eBay.' },
+    { title: 'Use an app if you can', text: 'An authenticator app (like Microsoft Authenticator) is safer than text messages, but text codes are much better than nothing.' },
+    { title: 'Codes are for you only', text: 'Never read a code out to someone who phones you — not even if they say they’re from your bank, Microsoft or us.' },
+    { title: 'Stuck?', text: 'Bring your phone and computer in and we’ll set it up with you.' },
+  ];
+  return (
+    <section className="card card-pad span-2">
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <span className="help-card">
+          <span className="icon-tile">
+            <Icon name="key" />
+          </span>
+        </span>
+        <div>
+          <h2 className="card-title">Protect your accounts with two-step verification</h2>
+          <p className="card-sub">A code from your phone as well as your password — the single best thing you can do to stay safe online.</p>
+        </div>
+      </div>
+      <div className="tips">
+        {tips.map((t) => (
+          <div key={t.title} className="tip">
+            <strong>{t.title}</strong>
+            {t.text}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
